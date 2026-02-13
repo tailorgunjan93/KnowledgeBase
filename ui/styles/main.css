@@ -1,0 +1,129 @@
+/* Dream Team 'MAANG' Standard Design System */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    /* Color Palette - Premium & Accessible (Light Default) */
+    --primary: #2563EB;
+    --primary-hover: #1D4ED8;
+    --bg-app: #FFFFFF;
+    --bg-surface: #F8FAFC;
+    --text-main: #0F172A;
+    --text-secondary: #475569;
+    --border-color: #E2E8F0;
+}
+
+/* Dark Mode Overrides */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --primary: #3B82F6;
+        --primary-hover: #60A5FA;
+        --bg-app: #0F172A;
+        --bg-surface: #1E293B;
+        --text-main: #F8FAFC;
+        --text-secondary: #94A3B8;
+        --border-color: #334155;
+    }
+}
+
+/* Global Reset & Typography */
+.stApp {
+    font-family: 'Inter', sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+}
+
+/* --- Components --- */
+
+/* 1. Auth & Containers */
+/* We use st.container(border=True) now, so we style that class */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 1rem;
+    padding: 2rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+}
+
+/* 2. Chat Bubbles */
+.chat-message {
+    padding: 1rem 1.25rem;
+    border-radius: 0.75rem;
+    margin-bottom: 1rem;
+    max-width: 85%;
+    line-height: 1.5;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.chat-message.user {
+    align-self: flex-end;
+    background-color: var(--primary);
+    color: white;
+    /* Always white for user bubble on primary bg */
+    border-bottom-right-radius: 2px;
+}
+
+.chat-message.assistant {
+    align-self: flex-start;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    border-bottom-left-radius: 2px;
+}
+
+/* 3. Document Cards */
+.doc-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-bottom: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.doc-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    border-color: var(--primary);
+}
+
+/* 4. Inputs & Buttons */
+.stTextInput>div>div>input {
+    border-radius: 0.5rem;
+}
+
+div[data-testid="stFormSubmitButton"] button {
+    border-radius: 0.5rem;
+    font-weight: 600;
+}
+
+/* --- Responsive Design --- */
+@media (max-width: 768px) {
+    .block-container {
+        padding: 1rem;
+    }
+
+    .chat-message {
+        max-width: 95%;
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
