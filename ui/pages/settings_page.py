@@ -55,19 +55,44 @@ def render_settings_page():
 
     # 2. Model Preference
     st.markdown("### 🤖 Model Preference")
-    current_model = repo.get_value(user_id, "default_model") or "llama-3.1-70b-versatile"
+    current_model = repo.get_value(user_id, "default_model") or "llama-3.3-70b-versatile"
     
-    model_options = [
-        "llama-3.1-70b-versatile",
-        "llama-3.1-8b-instant",
-        "mixtral-8x7b-32768"
-    ]
+    # Get available models
+    available_models = APIService.get_available_models()
+    model_options = list(available_models.keys()) + ["Custom"]
     
-    selected = st.selectbox("Default Model", model_options, index=model_options.index(current_model) if current_model in model_options else 0)
+    # Determine index
+    if current_model in available_models:
+        index = model_options.index(current_model)
+        is_custom = False
+    else:
+        index = model_options.index("Custom")
+        is_custom = True
     
-    if st.button("Update Model Preference"):
-        repo.set_value(user_id, "default_model", selected)
-        st.success("Preference Saved!")
+    selected_option = st.selectbox(
+        "Select Model", 
+        model_options, 
+        format_func=lambda x: available_models.get(x, x),
+        index=index
+    )
+    
+    final_model = selected_option
+    
+    if selected_option == "Custom" or is_custom:
+        # If custom was already selected (saved), pre-fill the input
+        default_custom = current_model if is_custom else ""
+        custom_model = st.text_input("Enter Custom Model ID", value=default_custom, help="e.g., llama3-70b-8192")
+        if custom_model:
+            final_model = custom_model
+    
+    if st.button("💾 Save Model Preference"):
+        if final_model == "Custom" and not custom_model:
+            st.error("Please enter a custom model ID")
+        else:
+            repo.set_value(user_id, "default_model", final_model)
+            st.success(f"Preference Saved! Using: {final_model}")
+            # Rerun to update state
+            st.rerun()
 
     # 3. System Info
     st.markdown("---")

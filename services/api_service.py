@@ -7,9 +7,11 @@ class APIService:
     
     # Available models
     MODELS = {
-        'llama-3.3-70b-versatile': 'Llama 3.3 70B',
+        'llama-3.3-70b-versatile': 'Llama 3.3 70B (Latest)',
         'llama-3.1-70b-versatile': 'Llama 3.1 70B',
-        'llama-3.1-8b-instant': 'Llama 3.1 8B',
+        'llama-3.1-8b-instant': 'Llama 3.1 8B (Fast)',
+        'llama-3.2-90b-vision-preview': 'Llama 3.2 90B (Vision)',
+        'llama-3.2-11b-vision-preview': 'Llama 3.2 11B (Vision)',
         'mixtral-8x7b-32768': 'Mixtral 8x7B',
         'gemma2-9b-it': 'Gemma 2 9B',
     }
