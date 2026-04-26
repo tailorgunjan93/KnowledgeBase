@@ -1,45 +1,71 @@
-"""Pytest configuration and fixtures."""
 import pytest
-import os
-from pathlib import Path
-from core.config import settings
-from data.db_context import db_context
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-# Override settings for testing
-os.environ["DB_PATH"] = ":memory:"
+from src.db.models import Base
 
-@pytest.fixture(scope="session")
-def test_db():
-    """Setup a test database."""
-    # Use a temporary file or override settings to use :memory:
-    # Since DbContext uses settings.DB_PATH, we need to patch it or ensure it points to test DB.
-    # For simplicity in this setup, we'll assume the environment var patch works or we modify the singleton.
-    
-    # Actually, let's create a fresh file for tests to test persistent connections (WAL)
-    test_db_path = settings.DATA_DIR / "test_knowledge_base.db"
-    if test_db_path.exists():
-        test_db_path.unlink()
-    
-    settings.DB_PATH = test_db_path
-    db_context.db_path = test_db_path
-    db_context._init_db()
-    
-    yield db_context
-    
-    # Teardown
-    if test_db_path.exists():
-        try:
-            test_db_path.unlink()
-        except:
-            pass
 
 @pytest.fixture(scope="function")
-def clean_db(test_db):
-    """Clean data between tests."""
-    with test_db.session() as conn:
-        conn.execute("DELETE FROM users")
-        conn.execute("DELETE FROM knowledge_bases")
-        conn.execute("DELETE FROM documents")
-        conn.execute("DELETE FROM chat_sessions")
-        conn.execute("DELETE FROM chat_messages")
-    return test_db
+def db_engine():
+    """Create a test database engine."""
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(engine)
+    yield engine
+    Base.metadata.drop_all(engine)
+
+
+@pytest.fixture(scope="function")
+def db_session(db_engine):
+    """Create a test database session."""
+    TestingSessionLocal = sessionmaker(bind=db_engine)
+    session = TestingSessionLocal()
+    yield session
+    session.close()
+
+
+@pytest.fixture
+def test_user(db_session):
+    """Create a test user."""
+    from src.db.models import User
+    from src.shared.security import hash_password
+
+    user = User(
+        username="testuser",
+        email="test@example.com",
+        password_hash=hash_password("testpassword")
+    )
+    db_session.add(user)
+    db_session.commit()
+    return user
+
+
+@pytest.fixture
+def test_kb(db_session, test_user):
+    """Create a test knowledge base."""
+    from src.db.models import KnowledgeBase
+
+    kb = KnowledgeBase(
+        user_id=test_user.id,
+        name="Test KB",
+        description="A test knowledge base"
+    )
+    db_session.add(kb)
+    db_session.commit()
+    return kb
+
+
+@pytest.fixture
+def test_document(db_session, test_kb, test_user):
+    """Create a test document."""
+    from src.db.models import Document
+
+    doc = Document(
+        kb_id=test_kb.id,
+        user_id=test_user.id,
+        title="Test Document",
+        content="This is test content for the document.",
+        file_type="txt"
+    )
+    db_session.add(doc)
+    db_session.commit()
+    return doc

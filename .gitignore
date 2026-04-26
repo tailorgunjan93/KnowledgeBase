@@ -7,4 +7,38 @@ wheels/
 *.egg-info
 
 # Virtual environments
-.venv
+.venv/
+
+# Environment variables (SENSITIVE)
+.env
+.env.local
+*.key
+secrets.json
+
+# Database files
+*.db
+*.sqlite
+data_storage/
+
+# Node modules (frontend)
+web/node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test / Cache
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/

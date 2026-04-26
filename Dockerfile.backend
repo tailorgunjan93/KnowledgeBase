@@ -1,0 +1,46 @@
+# Stage 1: Builder
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+
+# Install uv for faster dependency installation
+RUN pip install uv
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Create virtual environment and install dependencies
+RUN uv sync --frozen --no-install-project
+
+# Copy source code
+COPY src/ ./src/
+
+
+# Stage 2: Production
+FROM python:3.12-slim AS production
+
+WORKDIR /app
+
+# Copy virtual environment from builder
+COPY --from=builder /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/data_storage && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+ENV PYTHONPATH=/app
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"
+
+# Run the application
+CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

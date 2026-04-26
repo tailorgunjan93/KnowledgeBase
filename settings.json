@@ -1,0 +1,40 @@
+{
+  "app": {
+    "name": "Knowledge Base System",
+    "version": "2.0.0",
+    "debug": false,
+    "host": "0.0.0.0",
+    "port": 8000
+  },
+  "database": {
+    "type": "sqlite",
+    "path": "data_storage/knowledge_base.db",
+    "pool_size": 5,
+    "echo": false
+  },
+  "vector_store": {
+    "type": "faiss",
+    "path": "data_storage/vectors",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2"
+  },
+  "llm": {
+    "provider": "groq",
+    "model": "llama-3.3-70b-versatile",
+    "temperature": 0.7,
+    "max_tokens": 4096
+  },
+  "agent": {
+    "max_iterations": 10,
+    "timeout": 300,
+    "tools": ["wikipedia", "arxiv", "duckduckgo"]
+  },
+  "api": {
+    "cors_enabled": true,
+    "cors_origins": ["*"],
+    "rate_limit": 100
+  },
+  "workers": {
+    "count": 4,
+    "queue_size": 100
+  }
+}

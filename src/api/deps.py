@@ -1,0 +1,55 @@
+from fastapi import Depends, HTTPException, Header
+from sqlalchemy.orm import Session
+from typing import Optional
+
+from ..db.database import Database
+from ..db.repositories import UserRepository, UserSettingRepository
+from ..db.models import User, UserSetting
+from ..shared.security import decode_access_token
+from ..shared.config import get_settings
+
+
+def get_database() -> Database:
+    return Database(get_settings().database_url)
+
+
+def get_db_session(db: Database = Depends(get_database)) -> Session:
+    with db.session() as session:
+        yield session
+
+
+async def get_current_user(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db_session)
+) -> User:
+    if not authorization:
+        raise HTTPException(401, "Missing authorization header")
+
+    try:
+        token = authorization.replace("Bearer ", "")
+        payload = decode_access_token(token)
+        if payload is None:
+            raise HTTPException(401, "Invalid or expired token")
+
+        user_id = payload.get("user_id")
+        if not user_id:
+            raise HTTPException(401, "Invalid token payload")
+
+        user_repo = UserRepository(User, db)
+        user = user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(401, "User not found")
+
+        return user
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+
+
+def get_pagination_params(skip: int = 0, limit: int = 20) -> tuple[int, int]:
+    return skip, min(limit, 100)
+
+
+def get_user_settings(user_id: int, db: Session) -> UserSettingRepository:
+    return UserSettingRepository(UserSetting, db)

@@ -1,0 +1,81 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from pydantic import BaseModel, EmailStr
+from typing import Optional
+
+from .deps import get_db_session, get_current_user
+from ..db.repositories import UserRepository, UserSettingRepository
+from ..db.models import User, UserSetting
+from ..shared.security import hash_password, verify_password, create_access_token
+
+router = APIRouter(prefix="/auth", tags=["authentication"])
+
+
+class SignupRequest(BaseModel):
+    username: str
+    email: Optional[str] = None
+    password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    user_id: int
+    username: str
+    email: Optional[str] = None
+
+
+class TokenResponse(BaseModel):
+    user_id: int
+    username: str
+    token: str
+
+
+@router.post("/signup", response_model=TokenResponse)
+def signup(req: SignupRequest, db: Session = Depends(get_db_session)):
+    repo = UserRepository(User, db)
+
+    if repo.get_by_username(req.username):
+        raise HTTPException(400, "Username already exists")
+
+    email = req.email.strip() if req.email else None
+    user = repo.create(
+        username=req.username,
+        email=email,
+        password_hash=hash_password(req.password)
+    )
+
+    # Create default settings
+    settings_repo = UserSettingRepository(UserSetting, db)
+    for key in ["groq_api_key", "groq_model"]:
+        settings_repo.upsert(user.id, key, "")
+
+    db.commit()
+    token = create_access_token(user.id)
+
+    return TokenResponse(user_id=user.id, username=user.username, token=token)
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(req: LoginRequest, db: Session = Depends(get_db_session)):
+    repo = UserRepository(User, db)
+    user = repo.get_by_username(req.username)
+
+    if not user or not verify_password(req.password, user.password_hash):
+        raise HTTPException(401, "Invalid credentials")
+
+    token = create_access_token(user.id)
+
+    return TokenResponse(user_id=user.id, username=user.username, token=token)
+
+
+@router.get("/me", response_model=UserResponse)
+def get_me(current_user: User = Depends(get_current_user)):
+    return UserResponse(
+        user_id=current_user.id,
+        username=current_user.username,
+        email=current_user.email
+    )
