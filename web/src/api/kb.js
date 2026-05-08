@@ -17,9 +17,7 @@ export const kbAPI = {
     apiClient.get(`/api/kb/${kbId}/documents`, { params: { skip, limit } }),
 
   uploadDocument: (kbId, formData) =>
-    apiClient.post(`/api/kb/${kbId}/documents`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
+    apiClient.post(`/api/kb/${kbId}/documents`, formData),
 
   deleteDocument: (docId) =>
     apiClient.delete(`/api/documents/${docId}`),

@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-# Force reload 2
+# Force reload 3
 from contextlib import asynccontextmanager
 
 from .shared.config import get_settings
@@ -19,6 +19,11 @@ async def lifespan(app: FastAPI):
 
     db = Database(settings.database_url)
     db.create_all()
+
+    # Cleanup stuck documents
+    from .api.documents import cleanup_stuck_documents
+    with db.session() as session:
+        cleanup_stuck_documents(session)
 
     yield
 
@@ -80,6 +85,20 @@ def create_app() -> FastAPI:
     @app.get("/debug-test")
     def debug_test():
         return {"debug": "ANTIGRAVITY_IS_HERE_V3"}
+
+    # LLM provider info endpoint
+    @app.get("/api/llm-provider")
+    def llm_provider_info(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db_session)
+    ):
+        from .services.llm_factory import LLMFactory
+        settings_repo = UserSettingRepository(UserSetting, db)
+        api_key_setting = settings_repo.get_by_user_and_key(current_user.id, "groq_api_key")
+        api_key = api_key_setting.value if api_key_setting else None
+        if not api_key:
+            api_key = settings.groq_api_key
+        return LLMFactory.get_provider_info(api_key=api_key)
 
     return app
 

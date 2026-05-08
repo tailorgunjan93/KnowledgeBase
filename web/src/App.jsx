@@ -6,9 +6,10 @@ import { AuthPage, Sidebar, ChatPage, KnowledgeBasePage, SummarizerPage, Setting
 function AppContent() {
   const { user, loading, login } = useAuth();
   const [activeTab, setActiveTab] = useState('chat');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (loading) {
-    return <div className="loading-screen">Loading...</div>;
+    return <div className="loading-screen" style={{color: 'var(--ink)'}}>Loading...</div>;
   }
 
   if (!user) {
@@ -16,8 +17,11 @@ function AppContent() {
   }
 
   return (
-    <div className="app-container">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+    <div className="app">
+      <Sidebar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+      />
       <main className="main-content">
         {activeTab === 'chat' && <ChatPage user={user} />}
         {activeTab === 'kb' && <KnowledgeBasePage user={user} />}

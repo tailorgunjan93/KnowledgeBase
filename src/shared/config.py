@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # Groq API
     groq_api_key: Optional[str] = None
     groq_model: str = "openai/gpt-oss-120b"
+    summarizer_model: str = "llama-3.1-8b-instant"
+
+    # Ollama (local LLM - free, no subscription)
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1:8b"
 
     # Web Search
     enable_web_search: bool = True

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from pydantic import BaseModel
@@ -85,9 +85,12 @@ def list_documents(
     )
 
 
+import concurrent.futures
+
 @router.post("/kb/{kb_id}/documents")
 async def upload_document(
     kb_id: int,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session)
@@ -97,71 +100,142 @@ async def upload_document(
         if not kb_repo.get_by_user_and_id(kb_id, current_user.id):
             return {"detail": "Knowledge base not found", "status": "error"}
 
+        # Read all bytes before the file stream is consumed
+        try:
+            file_bytes = await file.read()
+        except Exception as read_err:
+            return {"detail": f"Failed to read uploaded file: {read_err}", "status": "error"}
+
         # Save uploaded file
         upload_dir = Path(f"data_storage/uploads/{kb_id}")
         upload_dir.mkdir(parents=True, exist_ok=True)
 
         file_path = upload_dir / f"{uuid.uuid4()}_{file.filename}"
         with file_path.open("wb") as f:
-            shutil.copyfileobj(file.file, f)
+            f.write(file_bytes)
 
-        # Extract content based on file type
-        content = await extract_file_content(file_path, file.filename)
-
-        # Create doc record
+        # Create doc record immediately with 'processing' status
         doc_repo = DocumentRepository(Document, db)
         try:
             doc = doc_repo.create(
                 kb_id=kb_id,
                 user_id=current_user.id,
                 title=file.filename,
-                content=content if not content.startswith("Error") else "",
-                file_type=file.filename.split(".")[-1] if "." in file.filename else "unknown",
-                file_path=str(file_path)
+                content="", # Will be filled in background
+                file_type=file.filename.split(".")[-1].lower() if "." in file.filename else "unknown",
+                file_path=str(file_path),
+                index_status="processing"
             )
             db.commit()
+            doc_id = doc.id
         except Exception as db_err:
             db.rollback()
             raise ValidationError(f"Database error: {str(db_err)}")
 
-        # Start indexing in background
-        try:
-            from ..core.search.dynamic_index import IndexManager
-            index_mgr = IndexManager(kb_id)
-            import concurrent.futures
-            # Index the text content if available
-            text_to_index = content if not content.startswith("Error") else ""
-            if text_to_index:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                    executor.submit(index_mgr.create_document_index, doc.id, text_to_index)
-        except Exception as e:
-            print(f"DEBUG indexing error: {e}")
-        
+        # Launch background task for extraction and indexing
+        from ..shared.config import get_settings
+        db_url = get_settings().database_url
+        background_tasks.add_task(_process_document_task, doc_id, kb_id, str(file_path), file.filename, db_url)
+
         return {
-            "id": doc.id,
-            "title": doc.title,
+            "id": doc_id,
+            "title": file.filename,
             "status": "uploaded",
-            "index_status": doc.index_status,
-            "warning": content if content.startswith("Error") else None
+            "index_status": "processing"
         }
     except Exception as e:
         import traceback
         error_msg = f"UPLOAD FAILED: {str(e)} - {traceback.format_exc()}"
-        print(error_msg)
-        return {"detail": error_msg, "status": "error"}
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"detail": error_msg, "debug": True})
 
 
-async def extract_file_content(file_path: Path, filename: str) -> str:
-    """Extract text content from uploaded file."""
+def _process_document_task(doc_id: int, kb_id: int, file_path_str: str, filename: str, db_url: str):
+    """Background task: extract text, then index document, then update DB status."""
+    from ..db.database import Database
+    from ..core.search.dynamic_index import IndexManager
+    import asyncio
+
+    file_path = Path(file_path_str)
+    
+    # 1. Extraction
+    try:
+        print(f"BG_TASK: Starting extraction for doc {doc_id} ({filename})...")
+        content = _extract_file_content_sync(file_path, filename)
+        
+        if content.startswith("Error"):
+            print(f"BG_TASK ERROR: Extraction failed for doc {doc_id}: {content}")
+            raise Exception(content)
+        
+        print(f"BG_TASK: Extraction complete for doc {doc_id}. Length: {len(content)} chars.")
+
+        # 2. Update content in DB
+        bg_db = Database(db_url)
+        with bg_db.session() as session:
+            doc_obj = session.get(Document, doc_id)
+            if doc_obj:
+                doc_obj.content = content
+            session.commit()
+
+        # 3. Indexing
+        print(f"BG_TASK: Starting indexing for doc {doc_id}...")
+        index_mgr = IndexManager(kb_id)
+        success = index_mgr.create_document_index(doc_id, content)
+        print(f"BG_TASK: Indexing {'successful' if success else 'failed'} for doc {doc_id}.")
+
+        # 4. Final status update
+        with bg_db.session() as session:
+            doc_obj = session.get(Document, doc_id)
+            if doc_obj:
+                doc_obj.indexed = success
+                doc_obj.index_status = "indexed" if success else "failed"
+                chunk_count = len(content.split()) // 250 if content else 0
+                doc_obj.chunk_count = max(chunk_count, 1) if success else 0
+            session.commit()
+            
+    except Exception as e:
+        print(f"DEBUG background processing error for doc {doc_id}: {e}")
+        try:
+            bg_db = Database(db_url)
+            with bg_db.session() as session:
+                doc_obj = session.get(Document, doc_id)
+                if doc_obj:
+                    doc_obj.indexed = False
+                    doc_obj.index_status = "failed"
+                session.commit()
+        except Exception:
+            pass
+
+
+def _extract_file_content_sync(file_path: Path, filename: str) -> str:
+    """Synchronous version of extraction for background tasks with multithreading for PDF."""
     ext = filename.split(".")[-1].lower() if "." in filename else ""
 
     try:
         if ext == "txt":
             return file_path.read_text(encoding="utf-8")
         elif ext == "pdf":
-            import pdfplumber
-            with pdfplumber.open(file_path) as pdf:
-                return "\n".join(page.extract_text() or "" for page in pdf.pages)
+            try:
+                import PyPDF2
+                text = []
+                with open(file_path, "rb") as f:
+                    reader = PyPDF2.PdfReader(f)
+                    for page in reader.pages:
+                        text.append(page.extract_text() or "")
+                return "\n".join(text)
+            except ImportError:
+                import pdfplumber
+                with pdfplumber.open(file_path) as pdf:
+                    # Use ThreadPoolExecutor for faster extraction on multi-page PDFs
+                    pages = pdf.pages
+                    if len(pages) > 5:
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                            # Extract pages in parallel
+                            futures = [executor.submit(lambda p: p.extract_text() or "", page) for page in pages]
+                            results = [f.result() for f in futures]
+                            return "\n".join(results)
+                    else:
+                        return "\n".join(page.extract_text() or "" for page in pages)
         elif ext in ["doc", "docx"]:
             from docx import Document as DocxDocument
             docx = DocxDocument(file_path)
@@ -174,6 +248,11 @@ async def extract_file_content(file_path: Path, filename: str) -> str:
             return file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
         return f"Error extracting content: {str(e)}"
+
+
+async def extract_file_content(file_path: Path, filename: str) -> str:
+    """Async wrapper for the sync extraction (used by summarizer which is still async-await based)."""
+    return _extract_file_content_sync(file_path, filename)
 
 
 @router.delete("/documents/{doc_id}")
@@ -222,8 +301,8 @@ def summarize(
         from ..shared.config import get_settings
         api_key = get_settings().groq_api_key
 
-    if not api_key:
-        raise ValidationError("GROQ API key not configured")
+    # We do NOT raise an error if api_key is missing, because Summarizer
+    # handles the fallback to local Ollama.
 
     summarizer = Summarizer()
     result = summarizer.summarize_text(req.text, api_key=api_key, max_length=req.max_length)
@@ -236,6 +315,15 @@ def summarize(
         original_length=result["original_length"],
         summary_length=result["summary_length"]
     )
+
+def cleanup_stuck_documents(db: Session):
+    """Mark documents stuck in 'processing' as 'failed' or ready to resume."""
+    from ..db.models import Document
+    stuck_docs = db.query(Document).filter(Document.index_status == "processing").all()
+    for doc in stuck_docs:
+        print(f"SYSTEM: Found stuck document {doc.id} ({doc.title}). Resetting to 'failed'.")
+        doc.index_status = "failed"
+    db.commit()
 
 @router.post("/summarize/file", response_model=SummarizeResponse)
 async def summarize_file(
@@ -254,8 +342,7 @@ async def summarize_file(
         from ..shared.config import get_settings
         api_key = get_settings().groq_api_key
 
-    if not api_key:
-        raise ValidationError("GROQ API key not configured")
+    # Let Summarizer handle the fallback.
 
     # Save temp and extract text
     upload_dir = Path(f"data_storage/uploads/temp_{current_user.id}")

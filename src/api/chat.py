@@ -6,15 +6,13 @@ from typing import Optional, List
 from .deps import get_db_session, get_current_user, get_user_settings
 from ..db.repositories import ChatSessionRepository, MessageRepository, UserSettingRepository, KnowledgeBaseRepository
 from ..db.models import ChatSession, Message, User, UserSetting, KnowledgeBase
+from ..services.llm_factory import LLMFactory
 try:
-    from ..services.groq_service import GroqService, ChatMessage
     from ..services.web_search_service import WebSearchService
 except (ImportError, ModuleNotFoundError):
     try:
-        from src.services.groq_service import GroqService, ChatMessage
         from src.services.web_search_service import WebSearchService
     except (ImportError, ModuleNotFoundError):
-        from services.groq_service import GroqService, ChatMessage
         from services.web_search_service import WebSearchService
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -44,7 +42,8 @@ class MessageResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[int] = None
-    kb_id: Optional[int] = None
+    kb_id: Optional[int] = None # Legacy support
+    kb_ids: Optional[List[int]] = None
     enable_web_search: bool = False
 
 
@@ -142,7 +141,7 @@ def chat(
 ):
     from ..core.langgraph.nodes import RAGOrchestrator
 
-    # Get API key
+    # Get API key (user-level or system-level)
     settings_repo = UserSettingRepository(UserSetting, db)
     api_key_setting = settings_repo.get_by_user_and_key(current_user.id, "groq_api_key")
     api_key = api_key_setting.value if api_key_setting else None
@@ -150,13 +149,16 @@ def chat(
     if not api_key:
         from ..shared.config import get_settings
         api_key = get_settings().groq_api_key
-        print(f"DEBUG: Falling back to global config key: {api_key[:10]}...")
 
-    if not api_key:
-        print("DEBUG: No API key found at all.")
-        raise HTTPException(400, "GROQ API key not configured. Please add it in Settings.")
-
-    groq_service = GroqService(api_key=api_key)
+    # Use LLM Factory — auto-detects Groq or Ollama
+    try:
+        llm_service = LLMFactory.create(api_key=api_key)
+    except Exception as factory_err:
+        raise HTTPException(
+            400,
+            "No LLM provider available. Either add a GROQ API key in Settings "
+            "or install Ollama (https://ollama.com) for free local LLM."
+        )
 
     # Get or create session
     session_repo = ChatSessionRepository(ChatSession, db)
@@ -167,7 +169,7 @@ def chat(
     else:
         session = session_repo.create(
             user_id=current_user.id,
-            kb_id=req.kb_id,
+            kb_id=req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id,
             title=req.message[:50] + "..." if len(req.message) > 50 else req.message
         )
         db.flush()
@@ -183,13 +185,25 @@ def chat(
 
     # Perform RAG chat
     try:
-        orchestrator = RAGOrchestrator(groq_service)
+        orchestrator = RAGOrchestrator(llm_service)
 
         context = {}
-        if req.kb_id:
+        
+        # Support both kb_id (legacy) and kb_ids (new)
+        kb_ids_to_search = []
+        if req.kb_ids:
+            kb_ids_to_search.extend(req.kb_ids)
+        elif req.kb_id:
+            kb_ids_to_search.append(req.kb_id)
+            
+        if kb_ids_to_search:
             kb_repo = KnowledgeBaseRepository(KnowledgeBase, db)
-            if kb_repo.get_by_user_and_id(req.kb_id, current_user.id):
-                context["kb_id"] = req.kb_id
+            valid_kbs = []
+            for k_id in kb_ids_to_search:
+                if kb_repo.get_by_user_and_id(k_id, current_user.id):
+                    valid_kbs.append(k_id)
+            if valid_kbs:
+                context["kb_ids"] = valid_kbs
 
         if req.enable_web_search:
             web_search = WebSearchService()

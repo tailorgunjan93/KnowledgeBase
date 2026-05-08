@@ -10,11 +10,11 @@ export const chatAPI = {
   getMessages: (sessionId) =>
     apiClient.get(`/api/sessions/${sessionId}/messages`),
 
-  chat: (message, sessionId, kbId, enableWebSearch) =>
+  chat: (message, sessionId, kbIds, enableWebSearch) =>
     apiClient.post('/api/chat', {
       message,
       session_id: sessionId,
-      kb_id: kbId,
+      kb_ids: kbIds,
       enable_web_search: enableWebSearch
     }),
 };

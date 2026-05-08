@@ -19,10 +19,7 @@ export const getAuthToken = () => memoryToken;
 // Create axios instance
 const apiClient = axios.create({
   baseURL: API_URL,
-  timeout: 30000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  timeout: 120000,
 });
 
 // Request interceptor

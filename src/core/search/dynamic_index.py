@@ -21,6 +21,19 @@ try:
 except ImportError:
     BM25Okapi = None
 
+# Singleton for embedding model
+_embedding_model = None
+
+def get_embedding_model():
+    global _embedding_model
+    if _embedding_model is None:
+        from sentence_transformers import SentenceTransformer
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"Loading embedding model on {device}...")
+        _embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device=device)
+    return _embedding_model
+
 
 class DocumentIndex:
     """Manages per-document FAISS and BM25 indices."""
@@ -86,10 +99,8 @@ class DocumentIndex:
 
     def _build_faiss_index(self):
         """Build FAISS index from chunks."""
-        from sentence_transformers import SentenceTransformer
-
-        model = SentenceTransformer("all-MiniLM-L6-v2")
-        embeddings = model.encode(self.chunks, convert_to_numpy=True)
+        model = get_embedding_model()
+        embeddings = model.encode(self.chunks, convert_to_numpy=True, batch_size=32, show_progress_bar=False)
 
         self.faiss_index = faiss.IndexFlatL2(self.dimension)
         self.faiss_index.add(embeddings)
@@ -249,10 +260,8 @@ class DynamicSearchEngine:
         if cache_key in self.embedding_cache:
             return self.embedding_cache[cache_key]
 
-        from sentence_transformers import SentenceTransformer
-
-        model = SentenceTransformer("all-MiniLM-L6-v2")
-        embedding = model.encode([text], convert_to_numpy=True)[0]
+        model = get_embedding_model()
+        embedding = model.encode([text], convert_to_numpy=True, show_progress_bar=False)[0]
 
         self.embedding_cache[cache_key] = embedding
         return embedding

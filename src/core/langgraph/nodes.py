@@ -1,6 +1,6 @@
 """LangGraph nodes for RAG orchestration."""
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 import re
@@ -238,8 +238,9 @@ class ResultEvaluatorNode:
 class RAGOrchestrator:
     """Main orchestrator combining all LangGraph nodes."""
 
-    def __init__(self, groq_service=None):
-        self.groq_service = groq_service
+    def __init__(self, llm_service=None):
+        """Initialize with any LLM service (GroqService or OllamaService)."""
+        self.llm_service = llm_service
         self.intent_evaluator = IntentEvaluatorNode()
         self.query_evaluator = QueryEvaluatorNode()
         self.result_evaluator = ResultEvaluatorNode()
@@ -247,14 +248,17 @@ class RAGOrchestrator:
     def chat(self, query: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """Process a chat query through the RAG pipeline."""
         context = context or {}
-        kb_id = context.get("kb_id")
+        kb_ids = context.get("kb_ids", [])
+        if context.get("kb_id") and context.get("kb_id") not in kb_ids:
+            kb_ids.append(context.get("kb_id"))
+            
         web_results = context.get("web_results", [])
 
         # Get conversation history context
         history = context.get("history", [])
 
         # Step 1: Intent Evaluation
-        kb_available = kb_id is not None
+        kb_available = len(kb_ids) > 0
         intent_result = self.intent_evaluator.evaluate(query, kb_available)
 
         # Step 2: Query Evaluation (only for QA)
@@ -265,34 +269,79 @@ class RAGOrchestrator:
             refined_query = query_result.refined_query if query_result else query
 
         # Step 3: Build prompt with context
-        prompt_context = self._build_context(refined_query, kb_id, web_results, history)
+        prompt_context, all_retrieved_snippets = self._build_context(refined_query, kb_ids, web_results, history)
 
-        # Step 4: Generate response if groq_service is available
+        # Step 4: Generate response if LLM service is available
         response_text = ""
-        if self.groq_service:
+        if self.llm_service:
             response_text = self._generate_response(query, prompt_context, intent_result)
         else:
-            response_text = "GROQ service not configured. Please add your API key in Settings."
+            response_text = "No LLM provider configured. Add a GROQ API key or install Ollama."
 
         # Step 5: Evaluate result
         evaluation = self.result_evaluator.evaluate(
-            [{"text": prompt_context, "score": 0.8}], response_text, query
+            all_retrieved_snippets, response_text, query
         )
 
         return {
             "response": response_text,
             "intent": intent_result.intent.value,
             "confidence": str(round(evaluation.confidence * 100, 1)) + "%",
-            "sources": [{"type": "knowledge_base" if kb_id else "general"}]
+            "sources": all_retrieved_snippets
         }
 
-    def _build_context(self, query: str, kb_id: Optional[int], web_results: List[Dict], history: List[Dict]) -> str:
-        """Build context string from various sources."""
+    def _build_context(self, query: str, kb_ids: List[int], web_results: List[Dict], history: List[Dict]) -> Tuple[str, List[Dict]]:
+        """Build context string from various sources and return source list."""
         context_parts = []
+        all_sources = []
 
-        # Add KB context if available (simplified - real implementation would search vectors)
-        if kb_id:
-            context_parts.append(f"[Knowledge Base ID: {kb_id}]")
+        # 1. Search Knowledge Bases
+        if kb_ids:
+            from ..search.dynamic_index import IndexManager
+            from ...db.database import Database
+            from ...db.models import Document
+            from ...shared.config import get_settings
+            
+            db_url = get_settings().database_url
+            db = Database(db_url)
+            
+            with db.session() as session:
+                for kb_id in kb_ids:
+                    # Get all indexed documents for this KB
+                    docs = session.query(Document).filter(
+                        Document.kb_id == kb_id, 
+                        Document.index_status == "indexed"
+                    ).all()
+                    
+                    if not docs:
+                        continue
+                        
+                    doc_ids = [d.id for d in docs]
+                    index_mgr = IndexManager(kb_id)
+                    
+                    try:
+                        results = index_mgr.search_kb(query, doc_ids, top_k=5)
+                        for r in results:
+                            # Find the doc title for better context
+                            doc_title = next((d.title for d in docs if str(d.id) == str(r["doc_id"])), "Document")
+                            all_sources.append({
+                                "title": doc_title,
+                                "text": r["text"],
+                                "score": r.get("combined_score", 0.5),
+                                "kb_id": kb_id
+                            })
+                    except Exception as e:
+                        logger.error(f"Search failed for KB {kb_id}: {e}")
+
+            if all_sources:
+                # Sort by score and take top 5
+                all_sources.sort(key=lambda x: x["score"], reverse=True)
+                top_sources = all_sources[:5]
+                kb_context = "\n\n".join([
+                    f"--- Source: {s['title']} ---\n{s['text']}"
+                    for s in top_sources
+                ])
+                context_parts.append(f"[Knowledge Base Context]\n{kb_context}")
 
         # Add web results
         if web_results:
@@ -310,12 +359,12 @@ class RAGOrchestrator:
             ])
             context_parts.append(f"[Conversation History]\n{history_text}")
 
-        return "\n\n".join(context_parts) if context_parts else "[No context available]"
+        return "\n\n".join(context_parts) if context_parts else "[No context available]", all_sources
 
     def _generate_response(self, query: str, context: str, intent_result: IntentResult) -> str:
         """Generate response using LLM with context."""
-        if not self.groq_service:
-            return "GROQ service not configured."
+        if not self.llm_service:
+            return "No LLM service configured."
 
         system_prompt = """You are a helpful AI assistant. Use the provided context to answer questions accurately.
 If the context doesn't contain relevant information, say so and provide your best general answer.
@@ -328,20 +377,24 @@ User Question: {query}
 
 Provide a helpful, accurate response based on the context if available."""
 
-        try:
-            from src.services.groq_service import ChatMessage
-        except ImportError:
-            from services.groq_service import ChatMessage
+        # Build messages using a simple dataclass compatible with both services
+        from dataclasses import dataclass
+
+        @dataclass
+        class _ChatMsg:
+            role: str
+            content: str
+
         messages = [
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=user_prompt)
+            _ChatMsg(role="system", content=system_prompt),
+            _ChatMsg(role="user", content=user_prompt),
         ]
 
         try:
-            return self.groq_service.chat_completion(
+            return self.llm_service.chat_completion(
                 messages,
                 temperature=0.3,
-                max_tokens=1024
+                max_tokens=1024,
             )
         except Exception as e:
             logger.error(f"LLM generation error: {e}")

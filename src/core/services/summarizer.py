@@ -1,4 +1,4 @@
-"""Document summarization module."""
+"""Document summarization module with LLM provider fallback."""
 
 from typing import List, Dict, Any, Optional
 import os
@@ -8,74 +8,166 @@ logger = logging.getLogger(__name__)
 
 
 class Summarizer:
-    """Document summarization using LLM."""
+    """Document summarization using LLM (Groq or local Ollama)."""
 
-    def __init__(self, model: str = "openai/gpt-oss-120b"):
-        self.model = model
+    def __init__(self, model: Optional[str] = None):
+        from ...shared.config import get_settings
+        settings = get_settings()
+        # Safely get model from settings or fallback
+        self.model = model or getattr(settings, "summarizer_model", "llama-3.1-8b-instant")
+        self.max_chunk_chars = 12000
+        self.max_workers = 3 # Conservative for low rate limits
 
-    def summarize_text(self, text: str, api_key: str = None, max_length: int = 500) -> Dict[str, Any]:
-        """Summarize raw text."""
-        api_key = api_key or os.getenv("GROQ_API_KEY", "")
-        if not api_key:
-            return {"error": "GROQ_API_KEY not configured"}
-
-        # Truncate text if too long
-        text = text[:10000] if len(text) > 10000 else text
-
+    def summarize_text(
+        self, text: str, api_key: str = None, max_length: int = 500
+    ) -> Dict[str, Any]:
+        """Summarize raw text using best available LLM provider."""
+        original_len = len(text)
+        
         try:
-            # Try LangChain first
-            try:
-                from langchain_groq import ChatGroq
-                from langchain.chains.summarize import load_summarize_chain
-                from langchain_core.documents import Document
-
-                llm = ChatGroq(temperature=0.3, model_name=self.model, groq_api_key=api_key)
-                chain = load_summarize_chain(llm, chain_type="stuff")
-                docs = [Document(page_content=text)]
-                summary_res = chain.invoke(docs)
-                summary = summary_res.get('output_text') or str(summary_res)
-            except Exception as lc_err:
-                logger.warning(f"LangChain summarization failed, falling back to direct call: {lc_err}")
-                # Fallback to direct GroqService call if available
-                try:
-                    from ...services.groq_service import GroqService, ChatMessage
-                    gs = GroqService(api_key=api_key)
-                    prompt = f"Summarize the following text in about {max_length} words:\n\n{text}"
-                    summary = gs.chat_completion([ChatMessage(role="user", content=prompt)])
-                except Exception as gs_err:
-                    raise Exception(f"Both LangChain and Direct LLM failed. LC: {lc_err}, GS: {gs_err}")
-
-            # Extract key points
+            if len(text) > self.max_chunk_chars:
+                summary = self._summarize_large_text(text, api_key, max_length)
+            else:
+                summary = self._generate_summary(text, api_key, max_length)
+                
             key_points = self._extract_key_points(summary)
 
             return {
                 "summary": summary,
                 "key_points": key_points,
-                "original_length": len(text),
+                "original_length": original_len,
                 "summary_length": len(summary),
             }
         except Exception as e:
             logger.error(f"Summarization failed: {e}")
             return {"error": str(e)}
 
-    def summarize_document(self, document_id: int, content: str) -> Dict[str, Any]:
+    def _summarize_large_text(self, text: str, api_key: str, max_length: int) -> str:
+        """Handle large text by summarizing chunks in parallel."""
+        from concurrent.futures import ThreadPoolExecutor
+        
+        # Split into chunks
+        chunks = [text[i:i + self.max_chunk_chars] for i in range(0, len(text), self.max_chunk_chars)]
+        # Limit chunks to prevent excessive API calls
+        chunks = chunks[:15] # Max 180k chars (roughly 45k tokens)
+        
+        logger.info(f"Summarizing {len(chunks)} chunks in parallel (max_workers={self.max_workers})...")
+        
+        def summarize_chunk(chunk):
+            chunk_prompt = f"Provide a brief, 2-paragraph technical summary of this document section:\n\n{chunk}"
+            return self._generate_summary(chunk_prompt, api_key, max_length // 2)
+
+        with ThreadPoolExecutor(max_workers=min(len(chunks), self.max_workers)) as executor:
+            chunk_summaries = list(executor.map(summarize_chunk, chunks))
+        
+        # Final combined summary
+        combined_text = "\n\n".join(chunk_summaries)
+        final_prompt = (
+            f"Below are summaries of different sections of a large document. "
+            f"Create a final, cohesive summary of about {max_length} words that covers all key points:\n\n"
+            f"{combined_text}"
+        )
+        return self._generate_summary(final_prompt, api_key, max_length)
+
+    def _generate_summary(
+        self, text: str, api_key: Optional[str], max_length: int
+    ) -> str:
+        """Generate summary using the best available LLM."""
+        prompt = (
+            f"Summarize the following text in about {max_length} words. "
+            f"Be concise, clear, and capture the key points:\n\n{text}"
+        )
+
+        # Try Groq first (via LangChain)
+        if api_key or os.getenv("GROQ_API_KEY"):
+            try:
+                return self._summarize_with_groq(prompt, api_key)
+            except Exception as e:
+                logger.warning(f"Groq summarization failed: {e}")
+
+        # Fallback: Ollama (local, free)
+        try:
+            return self._summarize_with_ollama(prompt)
+        except Exception as e:
+            logger.warning(f"Ollama summarization failed: {e}")
+
+        raise Exception(
+            "No LLM provider available. Set GROQ_API_KEY or install Ollama."
+        )
+
+    def _summarize_with_groq(self, prompt: str, api_key: Optional[str]) -> str:
+        """Summarize using Groq cloud LLM."""
+        resolved_key = api_key or os.getenv("GROQ_API_KEY", "")
+        if not resolved_key:
+            raise ValueError("No Groq API key")
+
+        import time
+        max_retries = 3
+        retry_delay = 2
+
+        for attempt in range(max_retries):
+            try:
+                from langchain_groq import ChatGroq
+                from langchain_core.messages import HumanMessage, SystemMessage
+
+                model_name = self.model or "llama-3.1-8b-instant"
+                llm = ChatGroq(
+                    temperature=0.3,
+                    model_name=model_name,
+                    groq_api_key=resolved_key,
+                )
+                messages = [
+                    SystemMessage(content="You are a precise document summarizer."),
+                    HumanMessage(content=prompt),
+                ]
+                response = llm.invoke(messages)
+                return response.content
+            except Exception as lc_err:
+                if "rate_limit" in str(lc_err).lower() and attempt < max_retries - 1:
+                    logger.warning(f"Rate limit hit, retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                
+                logger.warning(f"LangChain Groq failed: {lc_err}")
+                # Fallback to direct Groq SDK
+                from ...services.groq_service import GroqService, ChatMessage
+                gs = GroqService(api_key=resolved_key)
+                return gs.chat_completion(
+                    [ChatMessage(role="user", content=prompt)]
+                )
+
+    def _summarize_with_ollama(self, prompt: str) -> str:
+        """Summarize using local Ollama LLM (free)."""
+        from ...services.ollama_service import OllamaService, ChatMessage
+
+        svc = OllamaService()
+        if not svc.is_available():
+            raise Exception("Ollama is not running")
+
+        return svc.chat_completion(
+            [ChatMessage(role="user", content=prompt)],
+            temperature=0.3,
+            max_tokens=2048,
+        )
+
+    def summarize_document(
+        self, document_id: int, content: str
+    ) -> Dict[str, Any]:
         """Summarize a document."""
         return self.summarize_text(content)
 
     def _extract_key_points(self, summary: str) -> List[str]:
         """Extract key points from summary."""
-        # Simple extraction - split by sentences or bullet points
         lines = summary.split("\n")
         key_points = []
 
         for line in lines:
             line = line.strip()
-            # Remove bullet points and numbers
             line = line.lstrip("-*•").lstrip("0123456789.").strip()
             if line and len(line) > 20:
                 key_points.append(line)
 
-        # If no bullet points, create key points from sentences
         if not key_points:
             sentences = summary.split(".")
             for sentence in sentences[:5]:
@@ -83,7 +175,7 @@ class Summarizer:
                 if len(sentence) > 20:
                     key_points.append(sentence)
 
-        return key_points[:5]  # Limit to 5 key points
+        return key_points[:5]
 
 
 class ChunkProcessor:
