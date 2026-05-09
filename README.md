@@ -35,7 +35,7 @@ GROQ_API_KEY=your_groq_api_key
 ### 3. Run Backend
 
 ```powershell
-python -m uvicorn backend.main:app --reload
+python -m uvicorn src.main:app --reload
 ```
 
 Backend runs at http://localhost:8000
