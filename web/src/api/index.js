@@ -1,6 +1,7 @@
-export { default as apiClient } from './client';
-export { setAuthToken, getAuthToken, API_URL } from './client';
-export { authAPI } from './auth';
-export { chatAPI } from './chat';
-export { kbAPI } from './kb';
-export { settingsAPI } from './settings';
+// Re-export all API modules
+export * from './chatApi';
+export * from './documentApi';
+export * from './ragApi';
+export * from './authApi';
+export * from './settingsApi';
+export { default as httpClient } from './httpClient';

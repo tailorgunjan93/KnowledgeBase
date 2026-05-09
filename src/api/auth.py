@@ -4,8 +4,8 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 
 from .deps import get_db_session, get_current_user
-from ..db.repositories import UserRepository, UserSettingRepository
-from ..db.models import User, UserSetting
+from ..infrastructure.database.repositories import UserRepository, UserSettingRepository
+from ..domain.models import User, UserSetting
 from ..shared.security import hash_password, verify_password, create_access_token
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -34,8 +34,8 @@ class TokenResponse(BaseModel):
     token: str
 
 
-@router.post("/signup", response_model=TokenResponse)
-def signup(req: SignupRequest, db: Session = Depends(get_db_session)):
+@router.post("/register", response_model=TokenResponse)
+def register(req: SignupRequest, db: Session = Depends(get_db_session)):
     repo = UserRepository(User, db)
 
     if repo.get_by_username(req.username):
@@ -79,3 +79,30 @@ def get_me(current_user: User = Depends(get_current_user)):
         username=current_user.username,
         email=current_user.email
     )
+
+
+class SettingUpdate(BaseModel):
+    key: str
+    value: str
+
+
+@router.get("/settings")
+def get_settings_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session)
+):
+    repo = UserSettingRepository(UserSetting, db)
+    settings = repo.get_all_for_user(current_user.id)
+    return {s.key: s.value for s in settings}
+
+
+@router.post("/settings")
+def update_settings(
+    req: SettingUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session)
+):
+    repo = UserSettingRepository(UserSetting, db)
+    repo.upsert(current_user.id, req.key, req.value)
+    db.commit()
+    return {"status": "ok"}

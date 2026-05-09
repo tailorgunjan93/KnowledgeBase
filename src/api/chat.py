@@ -1,21 +1,37 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
 
-from .deps import get_db_session, get_current_user, get_user_settings
-from ..db.repositories import ChatSessionRepository, MessageRepository, UserSettingRepository, KnowledgeBaseRepository
-from ..db.models import ChatSession, Message, User, UserSetting, KnowledgeBase
-from ..services.llm_factory import LLMFactory
-try:
-    from ..services.web_search_service import WebSearchService
-except (ImportError, ModuleNotFoundError):
-    try:
-        from src.services.web_search_service import WebSearchService
-    except (ImportError, ModuleNotFoundError):
-        from services.web_search_service import WebSearchService
+from .deps import get_db_session, get_current_user
+from ..infrastructure.database.repositories import ChatSessionRepository, MessageRepository, UserSettingRepository, KnowledgeBaseRepository
+from ..domain.models import ChatSession, Message, User, UserSetting, KnowledgeBase
+
+from ..core.settings import get_settings
 
 router = APIRouter(prefix="/api", tags=["chat"])
+
+@router.get("/llm-provider")
+def get_llm_provider(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session)
+):
+    settings = get_settings()
+    
+    # Check user-specific Groq key
+    settings_repo = UserSettingRepository(UserSetting, db)
+    user_key = settings_repo.get_by_user_and_key(current_user.id, "groq_api_key")
+    
+    has_groq = bool(user_key and user_key.value) or bool(settings.groq_api_key)
+    
+    return {
+        "active_provider": "groq" if has_groq else "ollama",
+        "groq": {"available": has_groq},
+        "ollama": {
+            "available": True, # Assume local ollama is available if Groq is not
+            "model": settings.ollama_model
+        }
+    }
 
 
 class CreateSessionRequest(BaseModel):
@@ -135,31 +151,11 @@ def get_session_messages(
 
 @router.post("/chat", response_model=ChatResponse)
 def chat(
+    request: Request,
     req: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session)
 ):
-    from ..core.langgraph.nodes import RAGOrchestrator
-
-    # Get API key (user-level or system-level)
-    settings_repo = UserSettingRepository(UserSetting, db)
-    api_key_setting = settings_repo.get_by_user_and_key(current_user.id, "groq_api_key")
-    api_key = api_key_setting.value if api_key_setting else None
-
-    if not api_key:
-        from ..shared.config import get_settings
-        api_key = get_settings().groq_api_key
-
-    # Use LLM Factory — auto-detects Groq or Ollama
-    try:
-        llm_service = LLMFactory.create(api_key=api_key)
-    except Exception as factory_err:
-        raise HTTPException(
-            400,
-            "No LLM provider available. Either add a GROQ API key in Settings "
-            "or install Ollama (https://ollama.com) for free local LLM."
-        )
-
     # Get or create session
     session_repo = ChatSessionRepository(ChatSession, db)
     if req.session_id:
@@ -176,52 +172,25 @@ def chat(
 
     # Save user message
     msg_repo = MessageRepository(Message, db)
-    user_msg = msg_repo.create(
+    msg_repo.create(
         session_id=session.id,
         role="user",
         content=req.message
     )
     db.flush()
 
-    # Perform RAG chat
+    # Perform RAG chat using the injected service
     try:
-        orchestrator = RAGOrchestrator(llm_service)
-
-        context = {}
-        
-        # Support both kb_id (legacy) and kb_ids (new)
-        kb_ids_to_search = []
-        if req.kb_ids:
-            kb_ids_to_search.extend(req.kb_ids)
-        elif req.kb_id:
-            kb_ids_to_search.append(req.kb_id)
-            
-        if kb_ids_to_search:
-            kb_repo = KnowledgeBaseRepository(KnowledgeBase, db)
-            valid_kbs = []
-            for k_id in kb_ids_to_search:
-                if kb_repo.get_by_user_and_id(k_id, current_user.id):
-                    valid_kbs.append(k_id)
-            if valid_kbs:
-                context["kb_ids"] = valid_kbs
-
-        if req.enable_web_search:
-            web_search = WebSearchService()
-            search_results = web_search.search(req.message, max_results=3)
-            context["web_results"] = [
-                {"title": r.title, "body": r.body, "href": r.href}
-                for r in search_results
-            ]
-
-        result = orchestrator.chat(req.message, context=context)
+        rag_service = request.app.state.rag_service
+        result = rag_service.answer(req.message)
 
         # Save assistant message
-        assistant_msg = msg_repo.create(
+        msg_repo.create(
             session_id=session.id,
             role="assistant",
             content=result.get("response", ""),
             intent=result.get("intent"),
-            confidence=result.get("confidence"),
+            confidence=str(result.get("confidence")),
             sources=result.get("sources")
         )
         db.commit()
@@ -230,7 +199,7 @@ def chat(
             response=result.get("response", ""),
             session_id=session.id,
             intent=result.get("intent"),
-            confidence=result.get("confidence"),
+            confidence=str(result.get("confidence")),
             sources=result.get("sources")
         )
 

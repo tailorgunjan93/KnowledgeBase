@@ -1,110 +1,85 @@
-from fastapi import FastAPI
-# Force reload 3
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
-from .shared.config import get_settings
-from .shared.logging import setup_logging
+from .core.settings import get_settings
+from .core.logger import get_logger
+from .core.exceptions import KnowledgeBaseError
 from .shared.middleware import setup_middleware
 from .shared.exception_handler import setup_exception_handler
 from .shared.cors import setup_cors
-from .db.database import Database
-from .api import auth_router, chat_router, kb_router, documents_router
 
+# Infrastructure Adapters
+from .infrastructure.adapters.groq_llm_adapter import GroqLLMAdapter
+from .infrastructure.adapters.faiss_adapter import FAISSAdapter
+from .infrastructure.adapters.sentence_transformer_embedder import SentenceTransformerEmbedder
+from .infrastructure.adapters.sqlalchemy_adapter import SQLAlchemyAdapter
+
+# Application Services
+from .application.rag_service import SelfCorrectingRAG
+
+log = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     settings = get_settings()
-    setup_logging(settings.log_level)
+    log.info(f"Starting {settings.app_name}...")
 
-    db = Database(settings.database_url)
-    db.create_all()
-
-    # Cleanup stuck documents
+    # Initialize DB adapter
+    db_adapter = SQLAlchemyAdapter(settings.db_url)
+    
+    # Cleanup stuck documents (legacy logic integration)
     from .api.documents import cleanup_stuck_documents
-    with db.session() as session:
+    with db_adapter._Session() as session:
         cleanup_stuck_documents(session)
 
     yield
-
 
 def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(
         title=settings.app_name,
-        version="2.0",
+        version="3.0",
         lifespan=lifespan
     )
 
-    # Middleware
+    # Middleware & Global Exception Handlers
     setup_middleware(app)
     setup_exception_handler(app)
     setup_cors(app, settings.cors_origins)
 
+    # Task 1.6 — Register KnowledgeBaseError exception handlers
+    @app.exception_handler(KnowledgeBaseError)
+    async def kb_exception_handler(request: Request, exc: KnowledgeBaseError):
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+    # Composition Root
+    embedder = SentenceTransformerEmbedder(settings.embedder_model)
+    vector_store = FAISSAdapter(embedder)
+    llm = GroqLLMAdapter(settings)
+    rag_service = SelfCorrectingRAG(llm=llm, vector_store=vector_store)
+    
+    # Store in app state for access in routes if needed
+    app.state.rag_service = rag_service
+
     # Include routers
+    from .api import auth_router, chat_router, kb_router, documents_router
     app.include_router(auth_router)
     app.include_router(kb_router)
     app.include_router(documents_router)
     app.include_router(chat_router)
 
-    # Settings endpoint
-    from fastapi import Depends
-    from sqlalchemy.orm import Session
-    from .api.deps import get_db_session, get_current_user
-    from .db.repositories import UserSettingRepository
-    from .db.models import UserSetting, User
-
-    @app.get("/settings")
-    def get_settings_endpoint(
-        current_user: User = Depends(get_current_user),
-        db: Session = Depends(get_db_session)
-    ):
-        repo = UserSettingRepository(UserSetting, db)
-        settings = repo.get_all_for_user(current_user.id)
-        return {s.key: s.value for s in settings}
-
-    @app.post("/settings")
-    def update_settings(
-        key: str,
-        value: str,
-        current_user: User = Depends(get_current_user),
-        db: Session = Depends(get_db_session)
-    ):
-        repo = UserSettingRepository(UserSetting, db)
-        repo.upsert(current_user.id, key, value)
-        db.commit()
-        return {"status": "updated", "key": key}
-
     # Health check
     @app.get("/health")
     @app.get("/ready")
     def health():
-        return {"status": "ok", "version": "2.0"}
-
-    @app.get("/debug-test")
-    def debug_test():
-        return {"debug": "ANTIGRAVITY_IS_HERE_V3"}
-
-    # LLM provider info endpoint
-    @app.get("/api/llm-provider")
-    def llm_provider_info(
-        current_user: User = Depends(get_current_user),
-        db: Session = Depends(get_db_session)
-    ):
-        from .services.llm_factory import LLMFactory
-        settings_repo = UserSettingRepository(UserSetting, db)
-        api_key_setting = settings_repo.get_by_user_and_key(current_user.id, "groq_api_key")
-        api_key = api_key_setting.value if api_key_setting else None
-        if not api_key:
-            api_key = settings.groq_api_key
-        return LLMFactory.get_provider_info(api_key=api_key)
+        return {"status": "ok", "version": "3.0"}
 
     return app
 
-
 app = create_app()
-
 
 if __name__ == "__main__":
     import uvicorn

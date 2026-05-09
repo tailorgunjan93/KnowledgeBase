@@ -2,15 +2,15 @@ from fastapi import Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from ..db.database import Database
-from ..db.repositories import UserRepository, UserSettingRepository
-from ..db.models import User, UserSetting
+from ..infrastructure.database.database import Database
+from ..infrastructure.database.repositories import UserRepository, UserSettingRepository
+from ..domain.models import User, UserSetting
 from ..shared.security import decode_access_token
-from ..shared.config import get_settings
+from ..core.settings import get_settings
 
 
 def get_database() -> Database:
-    return Database(get_settings().database_url)
+    return Database(get_settings().db_url)
 
 
 def get_db_session(db: Database = Depends(get_database)) -> Session:

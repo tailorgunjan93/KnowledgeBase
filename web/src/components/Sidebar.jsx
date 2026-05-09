@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { apiClient } from '../api';
+import { httpClient } from '../api/httpClient';
 
 export function Sidebar({ activeTab, setActiveTab }) {
   const { user, logout } = useAuth();
   const [provider, setProvider] = useState({ active_provider: 'none' });
 
   useEffect(() => {
-    apiClient.get('/api/llm-provider')
+    httpClient.get('/api/llm-provider')
       .then(res => setProvider(res.data))
       .catch(() => {});
   }, []);

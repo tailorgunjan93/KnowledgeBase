@@ -298,11 +298,11 @@ class RAGOrchestrator:
         # 1. Search Knowledge Bases
         if kb_ids:
             from ..search.dynamic_index import IndexManager
-            from ...db.database import Database
-            from ...db.models import Document
-            from ...shared.config import get_settings
+            from ...infrastructure.database.database import Database
+            from ...domain.models import Document
+            from ...core.settings import get_settings
             
-            db_url = get_settings().database_url
+            db_url = get_settings().db_url
             db = Database(db_url)
             
             with db.session() as session:

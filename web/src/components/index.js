@@ -1,7 +1,7 @@
 export { AuthPage } from './AuthPage.jsx';
 export { Sidebar } from './Sidebar.jsx';
-export { ChatPage } from './ChatPage.jsx';
-export { KnowledgeBasePage } from './KnowledgeBasePage.jsx';
+export { ChatPage } from '../pages/Chat.jsx';
+export { KnowledgeBasePage } from '../pages/KnowledgeBase.jsx';
 export { SummarizerPage } from './SummarizerPage.jsx';
-export { SettingsPage } from './SettingsPage.jsx';
+export { SettingsPage } from '../pages/Settings.jsx';
 export { ErrorBoundary } from './ErrorBoundary.jsx';

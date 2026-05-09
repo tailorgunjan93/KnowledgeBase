@@ -2,10 +2,9 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 import uuid
 import time
-import logging
-from .logging import request_id_var
+from ..core.logger import request_id_var, get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

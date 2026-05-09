@@ -8,14 +8,14 @@ from pathlib import Path
 
 try:
     from .deps import get_db_session, get_current_user
-    from ..db.repositories import DocumentRepository, KnowledgeBaseRepository, UserSettingRepository
-    from ..db.models import Document, User, UserSetting, KnowledgeBase
+    from ..infrastructure.database.repositories import DocumentRepository, KnowledgeBaseRepository, UserSettingRepository
+    from ..domain.models import Document, User, UserSetting, KnowledgeBase
     from ..shared.exceptions import NotFoundError, ValidationError
 except (ImportError, ModuleNotFoundError):
     try:
         from src.api.deps import get_db_session, get_current_user
-        from src.db.repositories import DocumentRepository, KnowledgeBaseRepository, UserSettingRepository
-        from src.db.models import Document, User, UserSetting, KnowledgeBase
+        from src.infrastructure.database.repositories import DocumentRepository, KnowledgeBaseRepository, UserSettingRepository
+        from src.domain.models import Document, User, UserSetting, KnowledgeBase
         from src.shared.exceptions import NotFoundError, ValidationError
     except (ImportError, ModuleNotFoundError):
         # Fallback if src is root
@@ -152,7 +152,7 @@ async def upload_document(
 
 def _process_document_task(doc_id: int, kb_id: int, file_path_str: str, filename: str, db_url: str):
     """Background task: extract text, then index document, then update DB status."""
-    from ..db.database import Database
+    from ..infrastructure.database.database import Database
     from ..core.search.dynamic_index import IndexManager
     import asyncio
 
@@ -318,7 +318,7 @@ def summarize(
 
 def cleanup_stuck_documents(db: Session):
     """Mark documents stuck in 'processing' as 'failed' or ready to resume."""
-    from ..db.models import Document
+    from ..domain.models import Document
     stuck_docs = db.query(Document).filter(Document.index_status == "processing").all()
     for doc in stuck_docs:
         print(f"SYSTEM: Found stuck document {doc.id} ({doc.title}). Resetting to 'failed'.")

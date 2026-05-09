@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { authAPI } from '../api';
+import React, { useState } from 'react';
+import * as authAPI from '../api/authApi';
+import { useTheme } from '../context/ThemeContext';
 
 export function AuthPage({ onLogin }) {
+  const { theme, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState('login');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -9,12 +11,6 @@ export function AuthPage({ onLogin }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPw, setShowPw] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem('kbase-theme') || 'dark');
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('kbase-theme', theme);
-  }, [theme]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,7 +19,7 @@ export function AuthPage({ onLogin }) {
     try {
       const res = activeTab === 'login'
         ? await authAPI.login(username, password)
-        : await authAPI.signup(username, email, password);
+        : await authAPI.register({ username, email, password });
       onLogin(res.data.token);
     } catch (err) {
       const detail = err.response?.data?.detail;
@@ -65,8 +61,8 @@ export function AuthPage({ onLogin }) {
       </div>
 
       <div className="theme-toggle-auth">
-        <button className={`theme-btn ${theme === 'light' ? 'active' : ''}`} onClick={() => setTheme('light')}>☀️</button>
-        <button className={`theme-btn ${theme === 'dark' ? 'active' : ''}`} onClick={() => setTheme('dark')}>🌙</button>
+        <button className={`theme-btn ${theme === 'light' ? 'active' : ''}`} onClick={() => toggleTheme()}>☀️</button>
+        <button className={`theme-btn ${theme === 'dark' ? 'active' : ''}`} onClick={() => toggleTheme()}>🌙</button>
       </div>
 
       <div className="card">

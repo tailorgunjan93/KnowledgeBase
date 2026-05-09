@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthPage, Sidebar, ChatPage, KnowledgeBasePage, SummarizerPage, SettingsPage } from './components';
 
 function AppContent() {
   const { user, loading, login } = useAuth();
   const [activeTab, setActiveTab] = useState('chat');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (loading) {
-    return <div className="loading-screen" style={{color: 'var(--ink)'}}>Loading...</div>;
+    return <div className="loading-screen" style={{color: 'var(--color-text)'}}>Loading...</div>;
   }
 
   if (!user) {
@@ -35,9 +35,11 @@ function AppContent() {
 function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

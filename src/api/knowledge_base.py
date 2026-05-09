@@ -4,8 +4,8 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
 from .deps import get_db_session, get_current_user, get_pagination_params
-from ..db.repositories import KnowledgeBaseRepository, DocumentRepository
-from ..db.models import KnowledgeBase, Document, User
+from ..infrastructure.database.repositories import KnowledgeBaseRepository, DocumentRepository
+from ..domain.models import KnowledgeBase, Document, User
 from ..shared.exceptions import NotFoundError
 import shutil
 from pathlib import Path

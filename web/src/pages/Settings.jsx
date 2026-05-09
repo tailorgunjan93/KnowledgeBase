@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { settingsAPI, apiClient } from '../api';
+import * as settingsAPI from '../api/settingsApi';
 
 export function SettingsPage({ user }) {
   const [groqApiKey, setGroqApiKey] = useState('');
@@ -19,7 +19,7 @@ export function SettingsPage({ user }) {
 
   const fetchProvider = async () => {
     try {
-      const res = await apiClient.get('/api/llm-provider');
+      const res = await settingsAPI.getLLMProvider();
       setProvider(res.data);
     } catch (err) { console.error('Failed to fetch provider info'); }
   };

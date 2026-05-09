@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { authAPI, setAuthToken } from '../api';
+import * as authAPI from '../api/authApi';
+import { setAuthToken } from '../api/httpClient';
 
 const AuthContext = createContext(null);
 

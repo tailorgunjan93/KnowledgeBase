@@ -1,9 +1,9 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from .exceptions import AppException
-import logging
+from ..core.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def setup_exception_handler(app: FastAPI) -> None:
