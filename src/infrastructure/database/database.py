@@ -41,4 +41,4 @@ class Database:
 
 def get_database() -> Database:
     from ..shared.config import get_settings
-    return Database(get_settings().database_url)
+    return Database(get_settings().db_url)

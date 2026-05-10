@@ -133,8 +133,8 @@ async def upload_document(
             raise ValidationError(f"Database error: {str(db_err)}")
 
         # Launch background task for extraction and indexing
-        from ..shared.config import get_settings
-        db_url = get_settings().database_url
+        from ..core.settings import get_settings
+        db_url = get_settings().db_url
         background_tasks.add_task(_process_document_task, doc_id, kb_id, str(file_path), file.filename, db_url)
 
         return {

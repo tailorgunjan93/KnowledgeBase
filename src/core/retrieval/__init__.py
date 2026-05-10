@@ -51,9 +51,18 @@ class FAISSStore:
             query_embedding, min(k, self.index.ntotal)
         )
 
+        # DEBUG
+        import sys
+        print(f"DEBUG FAISSStore: ntotal={self.index.ntotal}, k={k}, indices[0]={indices[0].tolist() if len(indices) > 0 else []}, len(docs)={len(self.documents)}, len(doc_ids)={len(self.doc_ids)}", file=sys.stderr)
+
         results = []
+        # Additional safety check before accessing [0]
+        if len(distances) == 0 or len(indices) == 0 or len(distances[0]) == 0 or len(indices[0]) == 0:
+            return results
+            
         for dist, idx in zip(distances[0], indices[0]):
-            if idx < len(self.documents):
+            # FAISS may return -1 for invalid indices when asking for more neighbors than available
+            if idx >= 0 and idx < len(self.documents) and idx < len(self.doc_ids):
                 results.append(
                     {
                         "doc_id": self.doc_ids[idx],
@@ -62,6 +71,8 @@ class FAISSStore:
                         "score": float(1 / (1 + dist)),
                     }
                 )
+            else:
+                print(f"DEBUG FAISSStore: SKIPPED idx={idx}, dist={dist}", file=sys.stderr)
 
         return results
 

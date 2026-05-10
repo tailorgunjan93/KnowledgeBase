@@ -20,8 +20,8 @@ export const setAuthToken = (token) => {
 
 // Request interceptor: attach token/settings if needed
 httpClient.interceptors.request.use((config) => {
-  // Use in-memory token if available, otherwise fallback to localStorage
-  const token = authToken || localStorage.getItem('token');
+  // Use in-memory token if available, otherwise fallback to sessionStorage
+  const token = authToken || sessionStorage.getItem('auth_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -37,6 +37,12 @@ httpClient.interceptors.request.use((config) => {
 httpClient.interceptors.response.use(
   (res) => res,
   (err) => {
+    // Log full error to console for debugging
+    console.error('API Error:', err);
+    if (err.response) {
+      console.error('Status:', err.response.status);
+      console.error('Data:', err.response.data);
+    }
     // If backend returns a structured error like { error: "msg" }
     const message = err.response?.data?.error || err.response?.data?.detail || err.message || 'Unknown error';
     return Promise.reject(new Error(message));

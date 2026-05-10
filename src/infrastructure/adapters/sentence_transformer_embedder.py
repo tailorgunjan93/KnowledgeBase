@@ -7,7 +7,17 @@ class SentenceTransformerEmbedder:
         self._model = SentenceTransformer(model_name)
 
     def embed(self, text: str) -> list[float]:
-        return self._model.encode(text).tolist()
+        result = self._model.encode(text)
+        if hasattr(result, 'tolist'):
+            result = result.tolist()
+        if not result:
+            raise ValueError("Embedding model returned empty result")
+        return result
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        return self._model.encode(texts).tolist()
+        result = self._model.encode(texts)
+        if hasattr(result, 'tolist'):
+            result = result.tolist()
+        if not result:
+            raise ValueError("Embedding model returned empty result")
+        return result

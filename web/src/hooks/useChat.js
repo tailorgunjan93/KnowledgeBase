@@ -33,12 +33,18 @@ export function useChat() {
     setLoading(true);
 
     const userMessage = message;
-    setMessage('');
-
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
 
     try {
-      const res = await chatAPI.chat(message, currentSession, kbId, enableWebSearch);
+      // Build payload - send as single kb_id for compatibility
+      const payload = {
+        message,
+        session_id: currentSession,
+        kb_ids: kbId ? [kbId] : undefined,
+        enable_web_search: enableWebSearch,
+      };
+
+      const res = await chatAPI.sendMessage(payload);
 
       setMessages(prev => [...prev, {
         role: 'assistant',

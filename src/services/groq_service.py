@@ -40,6 +40,8 @@ class GroqService:
                 temperature=temperature,
                 max_tokens=max_tokens
             )
+            if not response.choices:
+                raise ExternalServiceError("LLM returned no response choices")
             return response.choices[0].message.content
         except GroqRateLimitError:
             logger.warning("Groq rate limit hit")

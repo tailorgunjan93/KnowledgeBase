@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { kbAPI } from '../api';
+import { kbAPI } from '../api/kb';
+import { httpClient } from '../api/httpClient';
 
 export function useKnowledgeBase() {
   const [knowledgeBases, setKnowledgeBases] = useState([]);
@@ -51,16 +52,8 @@ export function useKnowledgeBase() {
       const formData = new FormData();
       formData.append('file', new Blob([content], { type: 'text/plain' }), `${title}.txt`);
 
-      // Use raw axios for file upload since our API wrapper doesn't handle FormData well
-      import axios from 'axios';
-      const { API_URL } = await import('../api/client');
-      const token = sessionStorage.getItem('auth_token');
-
-      await axios.post(`${API_URL}/api/kb/${kbId}/documents`, formData, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data',
-        },
+      await httpClient.post(`/api/kb/${kbId}/documents`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
 
       selectKB(kbId);

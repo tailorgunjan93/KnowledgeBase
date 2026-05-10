@@ -1,104 +1,295 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as settingsAPI from '../api/settingsApi';
 
+const FALLBACK_MODELS = [
+  { id: 'llama-3.1-8b-instant',    label: 'LLaMA 3.1 — 8B Instant (fast)' },
+  { id: 'llama-3.1-70b-versatile', label: 'LLaMA 3.1 — 70B Versatile' },
+  { id: 'llama3-8b-8192',          label: 'LLaMA 3 — 8B' },
+  { id: 'llama3-70b-8192',         label: 'LLaMA 3 — 70B' },
+  { id: 'gemma2-9b-it',            label: 'Gemma 2 — 9B' },
+  { id: 'gemma-7b-it',             label: 'Gemma — 7B' },
+];
+
 export function SettingsPage({ user }) {
-  const [groqApiKey, setGroqApiKey] = useState('');
-  const [groqModel, setGroqModel] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [provider, setProvider] = useState(null);
+  const [groqApiKey,    setGroqApiKey]    = useState('');
+  const [groqModel,     setGroqModel]     = useState('');
+  const [saved,         setSaved]         = useState(false);
+  const [provider,      setProvider]      = useState(null);
+  const [showKey,       setShowKey]       = useState(false);
+  const [models,        setModels]        = useState(FALLBACK_MODELS);
+  const [modelsSource,  setModelsSource]  = useState('fallback');
+  const [modelsFetching, setModelsFetching] = useState(false);
+  const [modelsError,   setModelsError]   = useState('');
 
   useEffect(() => { fetchSettings(); fetchProvider(); }, []);
 
   const fetchSettings = async () => {
     try {
       const res = await settingsAPI.get();
-      if (res.data.groq_api_key) setGroqApiKey(res.data.groq_api_key);
-      if (res.data.groq_model) setGroqModel(res.data.groq_model);
-    } catch (err) { console.error('Failed to fetch settings'); }
+      const key   = res.data.groq_api_key || '';
+      const model = res.data.groq_model   || '';
+      setGroqApiKey(key);
+      setGroqModel(model);
+      if (key) loadModels(key);
+    } catch { /* silent */ }
   };
 
   const fetchProvider = async () => {
     try {
       const res = await settingsAPI.getLLMProvider();
       setProvider(res.data);
-    } catch (err) { console.error('Failed to fetch provider info'); }
+    } catch { /* silent */ }
   };
+
+  const loadModels = useCallback(async (keyOverride) => {
+    setModelsFetching(true);
+    setModelsError('');
+    try {
+      const res = await settingsAPI.fetchModels(keyOverride ?? groqApiKey);
+      if (res.data?.models?.length) {
+        setModels(res.data.models);
+        setModelsSource(res.data.source || 'groq');
+      } else {
+        setModels(FALLBACK_MODELS);
+        setModelsSource('fallback');
+      }
+    } catch {
+      setModelsError('Could not fetch models — showing cached list.');
+      setModels(FALLBACK_MODELS);
+      setModelsSource('fallback');
+    } finally {
+      setModelsFetching(false);
+    }
+  }, [groqApiKey]);
 
   const saveSettings = async () => {
     try {
       await settingsAPI.update('groq_api_key', groqApiKey);
       if (groqModel) await settingsAPI.update('groq_model', groqModel);
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => setSaved(false), 2500);
       fetchProvider();
-    } catch (err) { console.error('Failed to save settings'); }
+      loadModels();
+    } catch { /* silent */ }
   };
 
   const activeProvider = provider?.active_provider || 'none';
+  const isOnline       = activeProvider !== 'none';
 
   return (
-    <div style={{padding: '32px 40px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px'}}>
-      <h2 style={{fontFamily: 'Fraunces, serif', fontSize: '24px', fontWeight: 400, color: 'var(--ink)'}}>Settings</h2>
-      
-      <div style={{maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: '16px'}}>
-        <div style={{background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px'}}>
-          <h2 style={{fontSize: '16px', fontWeight: 500, color: 'var(--ink)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'}}>
-            🤖 LLM Provider Status
-          </h2>
-          
-          <div style={{display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', borderRadius: '10px', background: 'var(--bg)', fontSize: '13px', marginBottom: '12px', border: '1px solid var(--border)'}}>
-            <span style={{width: '8px', height: '8px', borderRadius: '50%', background: activeProvider !== 'none' ? 'var(--green)' : 'var(--red)', boxShadow: activeProvider !== 'none' ? '0 0 6px var(--green)' : 'none'}} />
-            <strong style={{color: 'var(--ink)'}}>Active: {activeProvider === 'groq' ? 'Groq Cloud' : activeProvider === 'ollama' ? 'Ollama (Local)' : 'No Provider'}</strong>
+    <div className="settings-page">
+      <div className="settings-header">
+        <h1>Settings</h1>
+        <p>Configure your LLM provider and application preferences.</p>
+      </div>
+
+      <div className="settings-body">
+        {/* Provider Status */}
+        <div className="settings-card">
+          <div className="settings-card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            LLM Provider Status
+          </div>
+
+          <div className="provider-status-row">
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+              background: isOnline ? 'var(--color-success)' : 'var(--color-error)',
+              boxShadow: isOnline ? '0 0 6px var(--color-success)' : 'none',
+            }}/>
+            <strong style={{ color: 'var(--color-text)', fontSize: 'var(--text-sm)' }}>
+              Active:{' '}
+              {activeProvider === 'groq'   ? 'Groq Cloud' :
+               activeProvider === 'ollama' ? 'Ollama (Local)' : 'No Provider'}
+            </strong>
           </div>
 
           {provider?.ollama && (
-            <div style={{display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', borderRadius: '10px', background: 'var(--bg)', fontSize: '13px', marginBottom: '12px', border: '1px solid var(--border)'}}>
-              <span style={{width: '8px', height: '8px', borderRadius: '50%', background: provider.ollama.available ? 'var(--green)' : 'var(--red)'}} />
-              <span style={{color: 'var(--ink2)'}}>Ollama: {provider.ollama.available ? `Running (${provider.ollama.model})` : 'Not running'}</span>
+            <div className="provider-status-row" style={{ marginTop: 'var(--space-2)' }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                background: provider.ollama.available ? 'var(--color-success)' : 'var(--color-text-faint)',
+              }}/>
+              <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-sm)' }}>
+                Ollama: {provider.ollama.available
+                  ? `Running — ${provider.ollama.model}`
+                  : 'Not running'}
+              </span>
             </div>
           )}
         </div>
 
-        <div style={{background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', padding: '24px'}}>
-          <h2 style={{fontSize: '16px', fontWeight: 500, color: 'var(--ink)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'}}>
-            ☁️ Groq Configuration
-          </h2>
-          
-          <p style={{fontSize: '13px', color: 'var(--ink3)', marginBottom: '16px', lineHeight: 1.5}}>
-            To use Groq's extremely fast free-tier API, enter your API key below. If no key is provided, the system will fall back to local Ollama.
+        {/* Groq Config */}
+        <div className="settings-card">
+          <div className="settings-card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="11" width="18" height="11" rx="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            Groq Configuration
+          </div>
+
+          <p className="settings-field-hint" style={{ marginBottom: 'var(--space-4)' }}>
+            Groq provides extremely fast, free-tier LLM inference. Enter your API key to enable it.
+            Without a key, the system falls back to local Ollama.
           </p>
-          
-          <div style={{marginBottom: '16px'}}>
-            <label style={{display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: 500, color: 'var(--ink2)', textTransform: 'uppercase', letterSpacing: '0.5px'}}>Groq API Key</label>
-            <input 
-              type="password" 
-              value={groqApiKey} 
-              onChange={e => setGroqApiKey(e.target.value)}
-              placeholder="gsk_..."
-              style={{width: '100%', padding: '12px 14px', border: '1px solid var(--border)', borderRadius: '10px', background: 'var(--bg)', color: 'var(--ink)', fontSize: '14px', outline: 'none', fontFamily: 'inherit'}}
-            />
+
+          {/* API Key */}
+          <div className="settings-field">
+            <label>Groq API Key</label>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input
+                type={showKey ? 'text' : 'password'}
+                value={groqApiKey}
+                onChange={e => setGroqApiKey(e.target.value)}
+                placeholder="gsk_..."
+                style={{ paddingRight: '42px', fontFamily: groqApiKey && !showKey ? 'monospace' : 'inherit' }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey(p => !p)}
+                style={{
+                  position: 'absolute', right: 12,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: 'var(--color-text-faint)', display: 'flex', alignItems: 'center',
+                }}
+              >
+                {showKey ? (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                  </svg>
+                )}
+              </button>
+            </div>
+            <p className="settings-field-hint">
+              Get a free key at{' '}
+              <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer"
+                 style={{ color: 'var(--color-primary)', textDecoration: 'none', fontWeight: 500 }}>
+                console.groq.com
+              </a>
+            </p>
           </div>
 
-          <div style={{marginBottom: '20px'}}>
-            <label style={{display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: 500, color: 'var(--ink2)', textTransform: 'uppercase', letterSpacing: '0.5px'}}>Preferred Model</label>
-            <select 
-              value={groqModel} 
-              onChange={e => setGroqModel(e.target.value)}
-              style={{width: '100%', padding: '12px 14px', border: '1px solid var(--border)', borderRadius: '10px', background: 'var(--bg)', color: 'var(--ink)', fontSize: '14px', outline: 'none', fontFamily: 'inherit', appearance: 'none'}}
-            >
-              <option value="">Default (llama3-70b-8192)</option>
-              <option value="llama3-70b-8192">LLaMA3 70B</option>
-              <option value="llama3-8b-8192">LLaMA3 8B</option>
-              <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
-              <option value="gpt-oss-120b">GPT OSS 120B</option>
-            </select>
+          {/* Model selector */}
+          <div className="settings-field">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
+              <label style={{ marginBottom: 0 }}>Preferred Model</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                {modelsSource === 'groq' && (
+                  <span style={{
+                    fontSize: 'var(--text-xs)', color: 'var(--color-success)',
+                    background: 'var(--color-success-bg)', padding: '2px 8px',
+                    borderRadius: 'var(--radius-xs)', fontWeight: 600,
+                  }}>
+                    Live from Groq
+                  </span>
+                )}
+                {modelsSource === 'fallback' && (
+                  <span style={{
+                    fontSize: 'var(--text-xs)', color: 'var(--color-text-faint)',
+                    background: 'var(--color-surface-alt)', padding: '2px 8px',
+                    borderRadius: 'var(--radius-xs)',
+                  }}>
+                    Cached list
+                  </span>
+                )}
+                <button
+                  onClick={() => loadModels()}
+                  disabled={modelsFetching}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    background: 'none', border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-xs)', padding: '3px 10px',
+                    fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)',
+                    cursor: modelsFetching ? 'not-allowed' : 'pointer',
+                    opacity: modelsFetching ? 0.6 : 1,
+                  }}
+                >
+                  <svg
+                    width="11" height="11" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2.5"
+                    style={{ animation: modelsFetching ? 'spin 1s linear infinite' : 'none' }}
+                  >
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                  </svg>
+                  {modelsFetching ? 'Fetching…' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ position: 'relative' }}>
+              <select
+                value={groqModel}
+                onChange={e => setGroqModel(e.target.value)}
+                disabled={modelsFetching}
+              >
+                <option value="">Default (llama-3.1-8b-instant)</option>
+                {models.map(m => (
+                  <option key={m.id} value={m.id}>{m.label || m.id}</option>
+                ))}
+              </select>
+              <svg
+                width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="var(--color-text-faint)" strokeWidth="2"
+                style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
+              >
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </div>
+
+            {modelsError && (
+              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-error-text)', marginTop: 'var(--space-1)' }}>
+                {modelsError}
+              </p>
+            )}
           </div>
 
-          <div style={{display: 'flex', alignItems: 'center'}}>
-            <button onClick={saveSettings} style={{padding: '12px 24px', background: 'var(--amber)', color: 'var(--bg)', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '14px', fontWeight: 600, fontFamily: 'inherit'}}>
-              Save Settings
-            </button>
-            {saved && <span style={{marginLeft: '12px', color: 'var(--green)', fontSize: '13px', fontWeight: 500}}>Saved successfully!</span>}
+          <div className="settings-save-row">
+            <button className="btn-settings-save" onClick={saveSettings}>Save Settings</button>
+            {saved && (
+              <span className="save-success">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                     style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }}>
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                Saved!
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Account */}
+        <div className="settings-card">
+          <div className="settings-card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            Account
+          </div>
+          <div className="provider-status-row">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-faint)" strokeWidth="2">
+              <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+            </svg>
+            <span style={{ color: 'var(--color-text)', fontSize: 'var(--text-sm)', fontWeight: 500 }}>
+              {user?.username || '—'}
+            </span>
+            {user?.email && (
+              <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)' }}>
+                · {user.email}
+              </span>
+            )}
           </div>
         </div>
       </div>
