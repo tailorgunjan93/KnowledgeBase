@@ -1,5 +1,5 @@
-from typing import Generic, TypeVar, Type, Optional, List
-from sqlalchemy.orm import Session
+from typing import Generic, TypeVar, Type, Optional, List, Sequence
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from .models import Base, User, UserSetting, KnowledgeBase, Document, ChatSession, Message
 
@@ -7,157 +7,139 @@ ModelType = TypeVar("ModelType", bound=Base)
 
 
 class BaseRepository(Generic[ModelType]):
-    def __init__(self, model: Type[ModelType], session: Session):
+    def __init__(self, model: Type[ModelType], session: AsyncSession):
         self.model = model
         self.session = session
 
-    def get_by_id(self, id: int) -> Optional[ModelType]:
-        return self.session.get(self.model, id)
+    async def get_by_id(self, id: int) -> Optional[ModelType]:
+        return await self.session.get(self.model, id)
 
-    def get_all(self, skip: int = 0, limit: int = 100) -> List[ModelType]:
-        return list(
-            self.session.scalars(
-                select(self.model).offset(skip).limit(limit)
-            ).all()
+    async def get_all(self, skip: int = 0, limit: int = 100) -> Sequence[ModelType]:
+        result = await self.session.scalars(
+            select(self.model).offset(skip).limit(limit)
         )
+        return result.all()
 
-    def create(self, **kwargs) -> ModelType:
+    async def create(self, **kwargs) -> ModelType:
         instance = self.model(**kwargs)
         self.session.add(instance)
-        self.session.flush()
+        await self.session.flush()
         return instance
 
-    def delete(self, id: int) -> bool:
-        instance = self.get_by_id(id)
+    async def delete(self, id: int) -> bool:
+        instance = await self.get_by_id(id)
         if instance:
-            self.session.delete(instance)
+            await self.session.delete(instance)
             return True
         return False
 
 
 class UserRepository(BaseRepository[User]):
-    def get_by_username(self, username: str) -> Optional[User]:
-        return self.session.scalar(
-            select(self.model).where(self.model.username == username)
-        )
+    async def get_by_username(self, username: str) -> Optional[User]:
+        result = await self.session.execute(select(self.model).where(self.model.username == username))
+        return result.scalar_one_or_none()
 
-    def get_by_email(self, email: str) -> Optional[User]:
-        return self.session.scalar(
-            select(self.model).where(self.model.email == email)
-        )
+    async def get_by_email(self, email: str) -> Optional[User]:
+        result = await self.session.execute(select(self.model).where(self.model.email == email))
+        return result.scalar_one_or_none()
 
 
 class UserSettingRepository(BaseRepository[UserSetting]):
-    def get_by_user_and_key(self, user_id: int, key: str) -> Optional[UserSetting]:
-        return self.session.scalar(
-            select(self.model).where(
-                self.model.user_id == user_id,
-                self.model.key == key
-            )
-        )
+    async def get_by_user_and_key(self, user_id: int, key: str) -> Optional[UserSetting]:
+        result = await self.session.execute(select(self.model).where(
+            self.model.user_id == user_id,
+            self.model.key == key
+        ))
+        return result.scalar_one_or_none()
 
-    def get_all_for_user(self, user_id: int) -> List[UserSetting]:
-        return list(
-            self.session.scalars(
-                select(self.model).where(self.model.user_id == user_id)
-            ).all()
-        )
+    async def get_all_for_user(self, user_id: int) -> Sequence[UserSetting]:
+        result = await self.session.scalars(select(self.model).where(self.model.user_id == user_id))
+        return result.all()
 
-    def upsert(self, user_id: int, key: str, value: str) -> UserSetting:
-        setting = self.get_by_user_and_key(user_id, key)
+    async def upsert(self, user_id: int, key: str, value: str) -> UserSetting:
+        setting = await self.get_by_user_and_key(user_id, key)
         if setting:
             setting.value = value
-            self.session.flush()
+            await self.session.flush()
             return setting
-        return self.create(user_id=user_id, key=key, value=value)
+        return await self.create(user_id=user_id, key=key, value=value)
 
 
 class KnowledgeBaseRepository(BaseRepository[KnowledgeBase]):
-    def get_by_user(self, user_id: int, skip: int = 0, limit: int = 20) -> List[KnowledgeBase]:
-        return list(
-            self.session.scalars(
-                select(self.model)
-                .where(self.model.user_id == user_id)
-                .offset(skip)
-                .limit(limit)
-                .order_by(self.model.created_at.desc())
-            ).all()
+    async def get_by_user(self, user_id: int, skip: int = 0, limit: int = 20) -> Sequence[KnowledgeBase]:
+        result = await self.session.scalars(
+            select(self.model)
+            .where(self.model.user_id == user_id)
+            .offset(skip)
+            .limit(limit)
+            .order_by(self.model.created_at.desc())
         )
+        return result.all()
 
-    def get_by_user_and_id(self, kb_id: int, user_id: int) -> Optional[KnowledgeBase]:
-        return self.session.scalar(
-            select(self.model).where(
-                self.model.id == kb_id,
-                self.model.user_id == user_id
-            )
-        )
+    async def get_by_user_and_id(self, kb_id: int, user_id: int) -> Optional[KnowledgeBase]:
+        result = await self.session.execute(select(self.model).where(
+            self.model.id == kb_id,
+            self.model.user_id == user_id
+        ))
+        return result.scalar_one_or_none()
 
-    def count_by_user(self, user_id: int) -> int:
-        return self.session.scalar(
-            select(func.count(self.model.id)).where(self.model.user_id == user_id)
-        )
+    async def count_by_user(self, user_id: int) -> int:
+        result = await self.session.execute(select(func.count(self.model.id)).where(self.model.user_id == user_id))
+        return result.scalar_one()
 
 
 class DocumentRepository(BaseRepository[Document]):
-    def get_by_kb(self, kb_id: int, skip: int = 0, limit: int = 100) -> List[Document]:
-        return list(
-            self.session.scalars(
-                select(self.model)
-                .where(self.model.kb_id == kb_id)
-                .offset(skip)
-                .limit(limit)
-                .order_by(self.model.created_at.desc())
-            ).all()
+    async def get_by_kb(self, kb_id: int, skip: int = 0, limit: int = 100) -> Sequence[Document]:
+        result = await self.session.scalars(
+            select(self.model)
+            .where(self.model.kb_id == kb_id)
+            .offset(skip)
+            .limit(limit)
+            .order_by(self.model.created_at.desc())
         )
+        return result.all()
 
-    def get_indexed_count(self, kb_id: int) -> int:
-        return self.session.scalar(
-            select(func.count(self.model.id)).where(
-                self.model.kb_id == kb_id,
-                self.model.indexed == True
-            )
-        )
+    async def get_indexed_count(self, kb_id: int) -> int:
+        result = await self.session.execute(select(func.count(self.model.id)).where(
+            self.model.kb_id == kb_id,
+            self.model.indexed == True
+        ))
+        return result.scalar_one()
 
-    def get_pending_indexing(self, kb_id: int) -> List[Document]:
-        return list(
-            self.session.scalars(
-                select(self.model).where(
-                    self.model.kb_id == kb_id,
-                    self.model.indexed == False
-                )
-            ).all()
-        )
+    async def get_pending_indexing(self, kb_id: int) -> Sequence[Document]:
+        result = await self.session.scalars(select(self.model).where(
+            self.model.kb_id == kb_id,
+            self.model.indexed == False
+        ))
+        return result.all()
 
 
 class ChatSessionRepository(BaseRepository[ChatSession]):
-    def get_by_user(self, user_id: int, skip: int = 0, limit: int = 20) -> List[ChatSession]:
-        return list(
-            self.session.scalars(
-                select(self.model)
-                .where(self.model.user_id == user_id)
-                .offset(skip)
-                .limit(limit)
-                .order_by(self.model.updated_at.desc())
-            ).all()
+    async def get_by_user(self, user_id: int, skip: int = 0, limit: int = 20) -> Sequence[ChatSession]:
+        result = await self.session.scalars(
+            select(self.model)
+            .where(self.model.user_id == user_id)
+            .offset(skip)
+            .limit(limit)
+            .order_by(self.model.updated_at.desc())
         )
+        return result.all()
 
-    def get_by_user_and_id(self, session_id: int, user_id: int) -> Optional[ChatSession]:
-        return self.session.scalar(
-            select(self.model).where(
-                self.model.id == session_id,
-                self.model.user_id == user_id
-            )
-        )
+    async def get_by_user_and_id(self, session_id: int, user_id: int) -> Optional[ChatSession]:
+        result = await self.session.execute(select(self.model).where(
+            self.model.id == session_id,
+            self.model.user_id == user_id
+        ))
+        return result.scalar_one_or_none()
 
 
 class MessageRepository(BaseRepository[Message]):
-    def get_by_session(self, session_id: int, skip: int = 0, limit: int = 100) -> List[Message]:
-        return list(
-            self.session.scalars(
-                select(self.model)
-                .where(self.model.session_id == session_id)
-                .offset(skip)
-                .limit(limit)
-                .order_by(self.model.created_at.asc())
-            ).all()
+    async def get_by_session(self, session_id: int, skip: int = 0, limit: int = 100) -> Sequence[Message]:
+        result = await self.session.scalars(
+            select(self.model)
+            .where(self.model.session_id == session_id)
+            .offset(skip)
+            .limit(limit)
+            .order_by(self.model.created_at.asc())
         )
+        return result.all()

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
@@ -35,14 +35,14 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/register", response_model=TokenResponse)
-def register(req: SignupRequest, db: Session = Depends(get_db_session)):
+async def register(req: SignupRequest, db: AsyncSession = Depends(get_db_session)):
     repo = UserRepository(User, db)
 
-    if repo.get_by_username(req.username):
+    if await repo.get_by_username(req.username):
         raise HTTPException(400, "Username already exists")
 
     email = req.email.strip() if req.email else None
-    user = repo.create(
+    user = await repo.create(
         username=req.username,
         email=email,
         password_hash=hash_password(req.password)
@@ -51,18 +51,18 @@ def register(req: SignupRequest, db: Session = Depends(get_db_session)):
     # Create default settings
     settings_repo = UserSettingRepository(UserSetting, db)
     for key in ["groq_api_key", "groq_model"]:
-        settings_repo.upsert(user.id, key, "")
+        await settings_repo.upsert(user.id, key, "")
 
-    db.commit()
+    await db.commit()
     token = create_access_token(user.id)
 
     return TokenResponse(user_id=user.id, username=user.username, token=token)
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(req: LoginRequest, db: Session = Depends(get_db_session)):
+async def login(req: LoginRequest, db: AsyncSession = Depends(get_db_session)):
     repo = UserRepository(User, db)
-    user = repo.get_by_username(req.username)
+    user = await repo.get_by_username(req.username)
 
     if not user or not verify_password(req.password, user.password_hash):
         raise HTTPException(401, "Invalid credentials")
@@ -73,7 +73,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db_session)):
 
 
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(current_user: User = Depends(get_current_user)):
     return UserResponse(
         user_id=current_user.id,
         username=current_user.username,
@@ -87,22 +87,22 @@ class SettingUpdate(BaseModel):
 
 
 @router.get("/settings")
-def get_settings_endpoint(
+async def get_settings_endpoint(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session)
 ):
     repo = UserSettingRepository(UserSetting, db)
-    settings = repo.get_all_for_user(current_user.id)
+    settings = await repo.get_all_for_user(current_user.id)
     return {s.key: s.value for s in settings}
 
 
 @router.post("/settings")
-def update_settings(
+async def update_settings(
     req: SettingUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db_session)
 ):
     repo = UserSettingRepository(UserSetting, db)
-    repo.upsert(current_user.id, req.key, req.value)
-    db.commit()
+    await repo.upsert(current_user.id, req.key, req.value)
+    await db.commit()
     return {"status": "ok"}

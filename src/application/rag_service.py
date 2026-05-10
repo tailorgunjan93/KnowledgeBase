@@ -23,7 +23,7 @@ class SelfCorrectingRAG:
         self._confidence_threshold = confidence_threshold
         self._max_retries = max_retries
 
-    def answer(self, query: str, context_override: Optional[str] = None) -> Dict[str, Any]:
+    def answer(self, query: str, context_override: Optional[str] = None, sources_override: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """Main entry point to get an answer for a query."""
         import sys
         log.info(f"RAG query started: {query}")
@@ -31,9 +31,9 @@ class SelfCorrectingRAG:
         sys.stderr.flush()
         
         # 1. Retrieval
-        if context_override:
+        if context_override is not None:
             context = context_override
-            sources = [{"text": "Manual override", "source": "input"}]
+            sources = sources_override if sources_override is not None else [{"text": "Manual override", "source": "input"}]
         else:
             print(f"DEBUG RAGService: calling vector_store.search()", file=sys.stderr)
             sys.stderr.flush()
@@ -46,7 +46,7 @@ class SelfCorrectingRAG:
 
         # 2. Generation
         messages = [
-            {"role": "system", "content": "You are a helpful AI assistant. Use the provided context to answer questions accurately."},
+            {"role": "system", "content": "You are a helpful AI assistant. Use the provided context to answer questions accurately. If the context does not contain the answer, say so."},
             {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
         ]
         

@@ -29,12 +29,14 @@ async def lifespan(app: FastAPI):
     log.info(f"Starting {settings.app_name}...")
 
     # Initialize DB adapter
-    db_adapter = SQLAlchemyAdapter(settings.db_url)
+    from .infrastructure.database.database import Database
+    db = Database(settings.db_url)
+    await db.create_all()
     
     # Cleanup stuck documents (legacy logic integration)
     from .api.documents import cleanup_stuck_documents
-    with db_adapter._Session() as session:
-        cleanup_stuck_documents(session)
+    async with db.session() as session:
+        await cleanup_stuck_documents(session)
 
     yield
 
