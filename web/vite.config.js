@@ -6,10 +6,8 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
+      '/api': 'http://localhost:8000',
       '/auth': 'http://localhost:8000',
-      '/knowledge-bases': 'http://localhost:8000',
-      '/documents': 'http://localhost:8000',
-      '/chat': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
       '/rag': 'http://localhost:8000'
     }

@@ -1,6 +1,5 @@
 """Wrapper around the Groq SDK. All Groq imports live here."""
 from groq import Groq
-from src.ports.llm_port import LLMPort
 from src.core.settings import AppSettings
 
 
@@ -17,7 +16,13 @@ class GroqLLMAdapter:
             messages=messages,
             max_tokens=max_tokens,
         )
-        return response.choices[0].message.content
+        choices = response.choices if response.choices else []
+        if not choices:
+            raise ValueError(f"LLM returned no response choices (model={self._model})")
+        content = choices[0].message.content
+        if content is None:
+            raise ValueError("LLM returned empty content")
+        return content
 
     def embed(self, text: str) -> list[float]:
         # Groq doesn't embed — delegate to a local sentence-transformer.

@@ -1,7 +1,6 @@
 """Wrapper around FAISS. All `import faiss` calls live here."""
 import faiss
 import numpy as np
-from src.ports.vector_store_port import VectorStorePort
 from src.infrastructure.adapters.sentence_transformer_embedder import SentenceTransformerEmbedder
 
 
@@ -19,11 +18,19 @@ class FAISSAdapter:
         self._metadata.extend(metadatas)
 
     def search(self, query: str, top_k: int = 5) -> list[dict]:
+        if self._index.ntotal == 0:
+            return []
         vector = np.array([self._embedder.embed(query)], dtype="float32")
         distances, indices = self._index.search(vector, top_k)
         results = []
+
+        # Check if we have any results before accessing [0]
+        if len(distances) == 0 or len(indices) == 0 or len(distances[0]) == 0 or len(indices[0]) == 0:
+            return results
+            
         for dist, idx in zip(distances[0], indices[0]):
-            if idx < len(self._metadata):
+            # FAISS returns -1 for invalid indices when fewer than top_k results exist
+            if idx >= 0 and idx < len(self._metadata):
                 results.append({**self._metadata[idx], "score": float(1 / (1 + dist))})
         return results
 

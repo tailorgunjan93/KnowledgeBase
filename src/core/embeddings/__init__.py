@@ -24,7 +24,10 @@ class EmbeddingsService:
 
     def encode_single(self, text: str) -> np.ndarray:
         """Encode a single text."""
-        return self.encode([text])[0]
+        result = self.encode([text])
+        if len(result) == 0:
+            raise ValueError("Embedding model returned empty result")
+        return result[0]
 
     def get_dimension(self) -> int:
         """Get embedding dimension."""

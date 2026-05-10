@@ -14,7 +14,7 @@ class AppSettings(BaseSettings):
 
     # Groq API
     groq_api_key: Optional[str] = None
-    groq_model: str = "mixtral-8x7b-32768"
+    groq_model: str = "llama-3.1-8b-instant"
     summarizer_model: str = "llama-3.1-8b-instant"
 
     # Ollama

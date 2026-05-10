@@ -100,6 +100,9 @@ class SelfCorrector:
 
             try:
                 response = await llm_client.complete(prompt)
+                if not response.choices:
+                    logger.warning("Correction attempt returned no choices")
+                    continue
                 new_answer = response.choices[0].message.content
 
                 if self._is_valid_correction(answer, new_answer):

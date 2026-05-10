@@ -148,6 +148,11 @@ class DocumentIndex:
                     data = pickle.load(f)
                     self.chunks = data["chunks"]
                     self.chunk_ids = data["chunk_ids"]
+            
+            # Validate consistency: if BM25 index exists but chunks are missing or empty, discard BM25
+            if self.bm25_index and (not self.chunks or not self.chunk_ids):
+                logger.warning(f"Document {self.document_id}: BM25 index exists but chunks are missing. Discarding BM25.")
+                self.bm25_index = None
 
             return bool(self.faiss_index or self.bm25_index)
         except Exception as e:
@@ -158,6 +163,9 @@ class DocumentIndex:
         self, query_embedding: np.ndarray, query_text: str, k: int = 5
     ) -> List[Dict]:
         """Search this document's index."""
+        import sys
+        print(f"DEBUG DocumentIndex.search: doc_id={self.document_id}, len(chunks)={len(self.chunks)}, len(chunk_ids)={len(self.chunk_ids)}, faiss_exists={self.faiss_index is not None}, bm25_exists={self.bm25_index is not None}", file=sys.stderr)
+
         results = []
 
         # FAISS search
@@ -166,9 +174,14 @@ class DocumentIndex:
             distances, indices = self.faiss_index.search(
                 query_embedding, min(k, self.faiss_index.ntotal)
             )
+            print(f"DEBUG FAISS: ntotal={self.faiss_index.ntotal}, indices[0]={indices[0].tolist() if len(indices) > 0 else []}", file=sys.stderr)
 
+            # Safety check before accessing [0]
+            if len(distances) == 0 or len(indices) == 0 or len(distances[0]) == 0 or len(indices[0]) == 0:
+                return results
+                
             for dist, idx in zip(distances[0], indices[0]):
-                if idx < len(self.chunks):
+                if 0 <= idx < len(self.chunks) and 0 <= idx < len(self.chunk_ids):
                     results.append(
                         {
                             "doc_id": str(self.document_id),
@@ -178,18 +191,22 @@ class DocumentIndex:
                             "source": "faiss",
                         }
                     )
+                else:
+                    print(f"DEBUG FAISS: SKIP idx={idx}, len(chunks)={len(self.chunks)}, len(chunk_ids)={len(self.chunk_ids)}", file=sys.stderr)
 
         # BM25 search
         if self.bm25_index:
             tokenized_query = query_text.lower().split()
             scores = self.bm25_index.get_scores(tokenized_query)
+            print(f"DEBUG BM25: len(scores)={len(scores)}", file=sys.stderr)
 
             top_indices = sorted(
                 range(len(scores)), key=lambda i: scores[i], reverse=True
             )[:k]
 
             for idx in top_indices:
-                if scores[idx] > 0:
+                # Check bounds FIRST before accessing arrays
+                if 0 <= idx < len(scores) and scores[idx] > 0 and idx < len(self.chunks) and idx < len(self.chunk_ids):
                     results.append(
                         {
                             "doc_id": str(self.document_id),
@@ -199,6 +216,8 @@ class DocumentIndex:
                             "source": "bm25",
                         }
                     )
+                else:
+                    print(f"DEBUG BM25: SKIP idx={idx}, len(scores)={len(scores)}, len(chunks)={len(self.chunks)}, len(chunk_ids)={len(self.chunk_ids)}", file=sys.stderr)
 
         return results
 
@@ -261,17 +280,25 @@ class DynamicSearchEngine:
             return self.embedding_cache[cache_key]
 
         model = get_embedding_model()
-        embedding = model.encode([text], convert_to_numpy=True, show_progress_bar=False)[0]
+        embedding_result = model.encode([text], convert_to_numpy=True, show_progress_bar=False)
+        if len(embedding_result) == 0:
+            raise ValueError("Embedding model returned empty result")
+        embedding = embedding_result[0]
 
         self.embedding_cache[cache_key] = embedding
         return embedding
 
     def _rrf_fusion(self, results: List[Dict], k: int = 60) -> List[Dict]:
         """Reciprocal Rank Fusion combining FAISS and BM25 results."""
+        import sys
+        print(f"DEBUG _rrf_fusion: input results count={len(results)}", file=sys.stderr)
+        for i, r in enumerate(results):
+            print(f"  result[{i}]: doc_id={r.get('doc_id')}, chunk_id={r.get('chunk_id')}, source={r.get('source')}", file=sys.stderr)
+
         scores: Dict[str, float] = {}
         doc_map: Dict[str, Dict] = {}
 
-        for result in results:
+        for rank, result in enumerate(results):
             doc_id = f"{result['doc_id']}_{result['chunk_id']}"
 
             # Get score based on source
@@ -281,13 +308,17 @@ class DynamicSearchEngine:
             if doc_id not in doc_map or score > doc_map[doc_id].get("score", 0):
                 doc_map[doc_id] = {**result, "score": score}
 
-            # RRF scoring
-            rank = results.index(result) + 1
-            rrf_score = score * (1 / (k + rank))
+            # RRF scoring - safely get rank position
+            try:
+                rank_position = results.index(result) + 1
+            except ValueError:
+                rank_position = rank + 1
+            rrf_score = score * (1 / (k + rank_position))
             scores[doc_id] = scores.get(doc_id, 0) + rrf_score
 
         # Sort by combined score
         sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        print(f"DEBUG _rrf_fusion: sorted_docs count={len(sorted_docs)}", file=sys.stderr)
 
         # Return top results with full data
         final_results = []
@@ -296,6 +327,7 @@ class DynamicSearchEngine:
             result["combined_score"] = scores[doc_id]
             final_results.append(result)
 
+        print(f"DEBUG _rrf_fusion: final_results count={len(final_results)}", file=sys.stderr)
         return final_results
 
 

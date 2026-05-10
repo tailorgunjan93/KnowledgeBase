@@ -19,7 +19,13 @@ class BM25Adapter:
             return []
         tokens = query.lower().split()
         scores = self._index.get_scores(tokens)
+
         ranked = sorted(
             enumerate(scores), key=lambda x: x[1], reverse=True
         )[:top_k]
-        return [{**self._corpus_meta[i], "score": float(s)} for i, s in ranked if s > 0]
+
+        results = []
+        for i, s in ranked:
+            if s > 0 and 0 <= i < len(self._corpus_meta):
+                results.append({**self._corpus_meta[i], "score": float(s)})
+        return results

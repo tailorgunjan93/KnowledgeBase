@@ -73,23 +73,29 @@ class Summarizer:
         self, text: str, api_key: Optional[str], max_length: int
     ) -> str:
         """Generate summary using the best available LLM."""
+        import sys
         prompt = (
             f"Summarize the following text in about {max_length} words. "
             f"Be concise, clear, and capture the key points:\n\n{text}"
         )
+        print(f"DEBUG Summarizer: text_len={len(text)}, max_length={max_length}", file=sys.stderr)
 
         # Try Groq first (via LangChain)
         if api_key or os.getenv("GROQ_API_KEY"):
             try:
-                return self._summarize_with_groq(prompt, api_key)
+                result = self._summarize_with_groq(prompt, api_key)
+                print(f"DEBUG Summarizer: Groq returned len={len(result)}", file=sys.stderr)
+                return result
             except Exception as e:
-                logger.warning(f"Groq summarization failed: {e}")
+                print(f"DEBUG Summarizer: Groq failed: {e}", file=sys.stderr)
 
         # Fallback: Ollama (local, free)
         try:
-            return self._summarize_with_ollama(prompt)
+            result = self._summarize_with_ollama(prompt)
+            print(f"DEBUG Summarizer: Ollama returned len={len(result)}", file=sys.stderr)
+            return result
         except Exception as e:
-            logger.warning(f"Ollama summarization failed: {e}")
+            print(f"DEBUG Summarizer: Ollama failed: {e}", file=sys.stderr)
 
         raise Exception(
             "No LLM provider available. Set GROQ_API_KEY or install Ollama."
@@ -175,7 +181,7 @@ class Summarizer:
                 if len(sentence) > 20:
                     key_points.append(sentence)
 
-        return key_points[:5]
+        return key_points[:5] if key_points else []
 
 
 class ChunkProcessor:

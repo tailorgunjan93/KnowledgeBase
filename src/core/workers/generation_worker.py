@@ -1,4 +1,4 @@
-"""Generation Worker for LLM response generation."""
+ju"""Generation Worker for LLM response generation."""
 
 import os
 from typing import Dict, Any, Optional
@@ -63,6 +63,11 @@ class GenerationWorker(Worker):
             response = client.chat.completions.create(
                 model=self.model, messages=messages, temperature=0.3, max_tokens=1024
             )
+
+            if not response.choices:
+                return TaskResult(
+                    task.task_id, False, error="LLM returned no response choices"
+                )
 
             return TaskResult(
                 task.task_id, True, {"response": response.choices[0].message.content}

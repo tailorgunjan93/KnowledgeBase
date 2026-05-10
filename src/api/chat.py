@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
+import logging
+
+logger = logging.getLogger(__name__)
 
 from .deps import get_db_session, get_current_user
 from ..infrastructure.database.repositories import ChatSessionRepository, MessageRepository, UserSettingRepository, KnowledgeBaseRepository
@@ -10,28 +13,6 @@ from ..domain.models import ChatSession, Message, User, UserSetting, KnowledgeBa
 from ..core.settings import get_settings
 
 router = APIRouter(prefix="/api", tags=["chat"])
-
-@router.get("/llm-provider")
-def get_llm_provider(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session)
-):
-    settings = get_settings()
-    
-    # Check user-specific Groq key
-    settings_repo = UserSettingRepository(UserSetting, db)
-    user_key = settings_repo.get_by_user_and_key(current_user.id, "groq_api_key")
-    
-    has_groq = bool(user_key and user_key.value) or bool(settings.groq_api_key)
-    
-    return {
-        "active_provider": "groq" if has_groq else "ollama",
-        "groq": {"available": has_groq},
-        "ollama": {
-            "available": True, # Assume local ollama is available if Groq is not
-            "model": settings.ollama_model
-        }
-    }
 
 
 class CreateSessionRequest(BaseModel):
@@ -156,6 +137,7 @@ def chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session)
 ):
+    logger.info(f"Chat endpoint called: user={current_user.id}, message_len={len(req.message)}")
     # Get or create session
     session_repo = ChatSessionRepository(ChatSession, db)
     if req.session_id:
@@ -205,4 +187,65 @@ def chat(
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, f"Chat error: {str(e)}")
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(f"Chat endpoint error: {e}")
+        logger.error(f"Full traceback: {error_details}")
+        raise HTTPException(500, f"Chat error: {str(e)} - Details: {error_details}")
+
+
+# --- Known-good Groq models as a fallback when the API key is absent ---
+_FALLBACK_MODELS = [
+    {"id": "llama-3.1-8b-instant",     "label": "LLaMA 3.1 — 8B Instant (fast)"},
+    {"id": "llama-3.1-70b-versatile",  "label": "LLaMA 3.1 — 70B Versatile"},
+    {"id": "llama3-8b-8192",           "label": "LLaMA 3 — 8B"},
+    {"id": "llama3-70b-8192",          "label": "LLaMA 3 — 70B"},
+    {"id": "gemma2-9b-it",             "label": "Gemma 2 — 9B"},
+    {"id": "gemma-7b-it",              "label": "Gemma — 7B"},
+]
+
+# Chat-compatible Groq models are identified by their id prefix.
+_CHAT_PREFIXES = ("llama", "mixtral", "gemma", "whisper", "deepseek", "qwen")
+
+
+@router.get("/models")
+def list_models(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """Return available Groq chat models. Fetches live list when an API key is present."""
+    # Prefer the key sent by the frontend; fall back to the user's stored key.
+    api_key = x_api_key
+    if not api_key:
+        repo = UserSettingRepository(UserSetting, db)
+        setting = repo.get_by_user_and_key(current_user.id, "groq_api_key")  # type: ignore[arg-type]
+        api_key = str(setting.value) if setting and setting.value else None
+    if not api_key:
+        api_key = get_settings().groq_api_key
+
+    if not api_key:
+        return {"source": "fallback", "models": _FALLBACK_MODELS}
+
+    try:
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        response = client.models.list()
+        models = [
+            {"id": m.id, "label": _make_label(m.id)}
+            for m in sorted(response.data, key=lambda m: m.id)
+            if m.id.startswith(_CHAT_PREFIXES) and "whisper" not in m.id
+        ]
+        if not models:
+            return {"source": "fallback", "models": _FALLBACK_MODELS}
+        return {"source": "groq", "models": models}
+    except Exception as exc:
+        logger.warning(f"Could not fetch Groq model list: {exc}")
+        return {"source": "fallback", "models": _FALLBACK_MODELS}
+
+
+def _make_label(model_id: str) -> str:
+    """Turn a Groq model id like 'llama-3.1-8b-instant' into a readable label."""
+    parts = model_id.split("-")
+    # capitalise first segment, keep the rest as-is
+    return " — ".join([parts[0].capitalize()] + parts[1:]) if parts else model_id

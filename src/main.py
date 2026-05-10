@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import sys
+import traceback
 
 from .core.settings import get_settings
 from .core.logger import get_logger
@@ -76,6 +78,18 @@ def create_app() -> FastAPI:
     @app.get("/ready")
     def health():
         return {"status": "ok", "version": "3.0"}
+
+    # Global exception logger for ANY unhandled error
+    @app.middleware("http")
+    async def log_exceptions(request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception as e:
+            print("\n=== UNHANDLED EXCEPTION ===", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            print("=== END ===\n", file=sys.stderr)
+            sys.stderr.flush()
+            raise
 
     return app
 

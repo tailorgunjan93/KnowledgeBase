@@ -37,13 +37,20 @@ class BM25Store:
         tokenized_query = query.lower().split()
         scores = self.bm25.get_scores(tokenized_query)
 
+        # DEBUG: Log array sizes
+        import sys
+        print(f"DEBUG BM25Store: len(documents)={len(self.documents)}, len(doc_ids)={len(self.doc_ids)}, len(scores)={len(scores)}, k={k}", file=sys.stderr)
+
         top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[
             :k
         ]
 
+        print(f"DEBUG BM25Store: top_indices={top_indices}", file=sys.stderr)
+
         results = []
         for idx in top_indices:
-            if scores[idx] > 0:
+            # Check bounds FIRST, then access scores[idx]
+            if 0 <= idx < len(scores) and scores[idx] > 0 and 0 <= idx < len(self.documents) and 0 <= idx < len(self.doc_ids):
                 results.append(
                     {
                         "doc_id": self.doc_ids[idx],
@@ -51,6 +58,8 @@ class BM25Store:
                         "score": float(scores[idx]),
                     }
                 )
+            else:
+                print(f"DEBUG BM25Store: SKIPPED idx={idx}, len(scores)={len(scores)}, len(docs)={len(self.documents)}", file=sys.stderr)
 
         return results
 

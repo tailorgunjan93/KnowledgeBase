@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { AuthPage, Sidebar, ChatPage, KnowledgeBasePage, SummarizerPage, SettingsPage } from './components';
+import { AuthPage, Sidebar, SummarizerPage } from './components';
+import { ChatPage, KnowledgeBasePage, SettingsPage } from './pages';
 
 function AppContent() {
   const { user, loading, login } = useAuth();
@@ -23,9 +24,9 @@ function AppContent() {
         setActiveTab={setActiveTab} 
       />
       <main className="main-content">
-        {activeTab === 'chat' && <ChatPage user={user} />}
-        {activeTab === 'kb' && <KnowledgeBasePage user={user} />}
-        {activeTab === 'summarizer' && <SummarizerPage user={user} />}
+        {activeTab === 'chat' && <ChatPage />}
+        {activeTab === 'kb' && <KnowledgeBasePage />}
+        {activeTab === 'summarizer' && <SummarizerPage />}
         {activeTab === 'settings' && <SettingsPage user={user} />}
       </main>
     </div>
