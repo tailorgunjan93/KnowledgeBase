@@ -65,7 +65,7 @@ export function SettingsPage({ user }) {
   const saveSettings = async () => {
     try {
       await settingsAPI.update('groq_api_key', groqApiKey);
-      if (groqModel) await settingsAPI.update('groq_model', groqModel);
+      await settingsAPI.update('groq_model', groqModel);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
       fetchProvider();
@@ -256,7 +256,9 @@ export function SettingsPage({ user }) {
           </div>
 
           <div className="settings-save-row">
-            <button className="btn-settings-save" onClick={saveSettings}>Save Settings</button>
+            <button className="btn-settings-save" onClick={saveSettings} disabled={saved}>
+              {saved ? 'Saving...' : 'Save Settings'}
+            </button>
             {saved && (
               <span className="save-success">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
