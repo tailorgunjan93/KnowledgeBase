@@ -14,6 +14,9 @@ class AppSettings(BaseSettings):
 
     # Groq API
     groq_api_key: Optional[str] = None
+
+    # Serper (Google Search API)
+    serper_api_key: Optional[str] = None
     groq_model: str = "llama-3.1-8b-instant"
     summarizer_model: str = "llama-3.1-8b-instant"
 

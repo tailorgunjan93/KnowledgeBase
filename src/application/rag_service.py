@@ -45,8 +45,21 @@ class SelfCorrectingRAG:
             context = "\n\n".join([f"Source: {s.get('title', 'Unknown')}\n{s.get('text', '')}" for s in sources])
 
         # 2. Generation
+        has_web = context_override is not None and "[WEB SEARCH" in (context_override or "")
+        if has_web:
+            system_msg = (
+                "You are a helpful AI assistant with access to real-time web search results. "
+                "The context below contains live web search results fetched for this query. "
+                "Use these results to answer the question with current, up-to-date information. "
+                "Cite the titles or URLs from the results when relevant."
+            )
+        else:
+            system_msg = (
+                "You are a helpful AI assistant. Use the provided context to answer questions accurately. "
+                "If the context does not contain the answer, say so."
+            )
         messages = [
-            {"role": "system", "content": "You are a helpful AI assistant. Use the provided context to answer questions accurately. If the context does not contain the answer, say so."},
+            {"role": "system", "content": system_msg},
             {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
         ]
         

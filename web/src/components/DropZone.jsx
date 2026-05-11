@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 
 const DropZone = ({ onFiles, disabled }) => {
   const [dragging, setDragging] = useState(false);
+  const inputRef = useRef(null);
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -20,11 +21,23 @@ const DropZone = ({ onFiles, disabled }) => {
     }
   };
 
+  const handleClick = () => {
+    if (!disabled) inputRef.current?.click();
+  };
+
+  const handleInputChange = (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      onFiles([...e.target.files]);
+      e.target.value = '';
+    }
+  };
+
   return (
     <div
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onClick={handleClick}
       style={{
         border: `2px dashed ${dragging ? 'var(--color-primary)' : 'var(--color-border)'}`,
         borderRadius: 'var(--radius-md)',
@@ -37,6 +50,14 @@ const DropZone = ({ onFiles, disabled }) => {
         color: dragging ? 'var(--color-primary-dark)' : 'var(--color-text-muted)'
       }}
     >
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".pdf,.doc,.docx,.txt,.md,.xlsx,.xls"
+        style={{ display: 'none' }}
+        onChange={handleInputChange}
+        disabled={disabled}
+      />
       <div style={{ marginBottom: 'var(--space-2)' }}>
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
