@@ -187,6 +187,82 @@ async def chat(
                     context_override = "\n\n".join([f"Source (Doc {s.get('doc_id')}):\n{s.get('text', '')}" for s in search_results])
                     sources_override = search_results
 
+        if req.enable_web_search:
+            try:
+                def _run_web_search():
+                    import httpx as _httpx
+                    combined = []
+                    serper_key = get_settings().serper_api_key
+
+                    # 1. Serper (Google Search API) — primary, reliable
+                    if serper_key:
+                        try:
+                            resp = _httpx.post(
+                                "https://google.serper.dev/search",
+                                headers={"X-API-KEY": serper_key, "Content-Type": "application/json"},
+                                json={"q": req.message, "num": 5},
+                                timeout=10,
+                            )
+                            if resp.status_code == 200:
+                                for r in resp.json().get("organic", [])[:5]:
+                                    combined.append({"title": r.get("title", ""), "href": r.get("link", ""), "body": r.get("snippet", "")})
+                        except Exception as e:
+                            logger.warning(f"Serper search failed: {e}")
+
+                    # 2. Wikipedia — great for factual / encyclopedic queries
+                    try:
+                        import wikipedia
+                        wikipedia.set_lang("en")
+                        wiki_results = wikipedia.search(req.message, results=3)
+                        for title in wiki_results[:2]:
+                            try:
+                                summary = wikipedia.summary(title, sentences=3, auto_suggest=False)
+                                page = wikipedia.page(title, auto_suggest=False)
+                                combined.append({"title": title, "href": page.url, "body": summary})
+                            except Exception:
+                                continue
+                    except Exception as e:
+                        logger.warning(f"Wikipedia search failed: {e}")
+
+                    if combined:
+                        return combined
+
+                    # 3. DuckDuckGo fallback (flaky but free)
+                    from duckduckgo_search import DDGS
+                    for backend in ("html", "lite", "auto"):
+                        try:
+                            results = list(DDGS(timeout=12).text(req.message, max_results=5, backend=backend))
+                            if results:
+                                return results
+                        except Exception:
+                            continue
+                    try:
+                        news = list(DDGS(timeout=12).news(req.message, max_results=5))
+                        if news:
+                            return [{"title": r.get("title", ""), "href": r.get("url", ""), "body": r.get("body", "")} for r in news]
+                    except Exception:
+                        pass
+                    return []
+                web_results = await run_in_threadpool(_run_web_search)
+                logger.info(f"Web search returned {len(web_results)} results")
+                if web_results:
+                    web_context = "[WEB SEARCH RESULTS]\n" + "\n\n".join([
+                        f"Title: {r.get('title', '')}\nURL: {r.get('href', '')}\n{r.get('body', '')}"
+                        for r in web_results
+                    ])
+                    context_override = (context_override + "\n\n" + web_context) if context_override else web_context
+                    web_sources = [
+                        {"type": "web", "title": r.get("title", ""), "url": r.get("href", ""), "text": r.get("body", "")}
+                        for r in web_results
+                    ]
+                    sources_override = (sources_override or []) + web_sources
+                else:
+                    logger.warning("Web search returned 0 results from all backends")
+                    no_result_msg = "[WEB SEARCH] Search was attempted but returned no results. Answer based on your training knowledge."
+                    context_override = (context_override + "\n\n" + no_result_msg) if context_override else no_result_msg
+            except Exception as web_err:
+                logger.warning(f"Web search failed: {web_err}")
+
         result = await run_in_threadpool(rag_service.answer, req.message, context_override, sources_override)
 
         # Save assistant message
