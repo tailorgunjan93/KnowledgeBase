@@ -302,7 +302,12 @@ async def chat(
             confidence_threshold=get_settings().confidence_threshold,
             max_retries=get_settings().max_retries,
         )
-        result = await run_in_threadpool(per_req_rag.answer, req.message, context_override, sources_override)
+        try:
+            result = await run_in_threadpool(per_req_rag.answer, req.message, context_override, sources_override)
+        except ValueError as user_err:
+            # Friendly API errors raised by LLM adapters (rate limit, bad key, missing model, etc.)
+            await db.rollback()
+            raise HTTPException(422, str(user_err))
 
         # Save assistant message
         await msg_repo.create(
@@ -323,13 +328,13 @@ async def chat(
             sources=result.get("sources")
         )
 
+    except HTTPException:
+        raise  # already formatted — don't re-wrap
     except Exception as e:
         await db.rollback()
         import traceback
-        error_details = traceback.format_exc()
-        logger.error(f"Chat endpoint error: {e}")
-        logger.error(f"Full traceback: {error_details}")
-        raise HTTPException(500, f"Chat error: {str(e)} - Details: {error_details}")
+        logger.error(f"Chat endpoint error: {e}\n{traceback.format_exc()}")
+        raise HTTPException(500, "An unexpected server error occurred. Please try again.")
 
 
 # Static model lists per provider (used as fallback or when live fetch isn't available)
@@ -348,10 +353,11 @@ _PROVIDER_MODELS: dict = {
         {"id": "o1-mini",      "label": "o1 Mini (reasoning)"},
     ],
     "gemini": [
-        {"id": "gemini-2.0-flash",    "label": "Gemini 2.0 Flash"},
-        {"id": "gemini-1.5-pro",      "label": "Gemini 1.5 Pro (1M context)"},
-        {"id": "gemini-1.5-flash",    "label": "Gemini 1.5 Flash"},
-        {"id": "gemini-1.5-flash-8b", "label": "Gemini 1.5 Flash 8B (fast)"},
+        {"id": "gemini-2.0-flash",         "label": "Gemini 2.0 Flash"},
+        {"id": "gemini-2.0-flash-lite",    "label": "Gemini 2.0 Flash Lite (fast)"},
+        {"id": "gemini-1.5-pro-002",       "label": "Gemini 1.5 Pro 002 (1M context)"},
+        {"id": "gemini-1.5-flash-002",     "label": "Gemini 1.5 Flash 002"},
+        {"id": "gemini-1.5-flash-8b-001",  "label": "Gemini 1.5 Flash 8B (fast)"},
     ],
     "nvidia": [
         {"id": "meta/llama-3.1-8b-instruct",                   "label": "Meta Llama 3.1 8B"},
@@ -437,15 +443,33 @@ async def list_models(
         if not api_key:
             return {"source": "fallback", "models": _PROVIDER_MODELS["gemini"]}
         try:
+            # Bare unversioned model IDs that the API still lists but can no longer serve
+            _GEMINI_DEPRECATED = {
+                "gemini-pro", "gemini-ultra", "gemini-nano",
+                "gemini-1.0-pro", "gemini-1.0-pro-vision",
+                "gemini-1.5-pro", "gemini-1.5-flash",
+            }
             def _list_gemini():
                 from google import genai
                 client = genai.Client(api_key=api_key)
                 result = []
                 for m in client.models.list():
-                    if "generateContent" in (m.supported_generation_methods or []):
-                        model_id = m.name.removeprefix("models/") if m.name else m.name
-                        label = m.display_name or model_id
-                        result.append({"id": model_id, "label": label})
+                    raw_name = m.name or ""
+                    model_id = raw_name.removeprefix("models/")
+                    if not model_id.startswith("gemini"):
+                        continue  # skip embedding / vision-only models
+                    if model_id in _GEMINI_DEPRECATED:
+                        continue
+                    # Accept models that support generateContent in either field name
+                    methods = (
+                        getattr(m, "supported_generation_methods", None)
+                        or getattr(m, "supported_actions", None)
+                        or []
+                    )
+                    if methods and "generateContent" not in methods:
+                        continue
+                    label = (m.display_name or model_id)
+                    result.append({"id": model_id, "label": label})
                 return sorted(result, key=lambda x: x["id"])
             models = await run_in_threadpool(_list_gemini)
             return {"source": "gemini", "models": models or _PROVIDER_MODELS["gemini"]}

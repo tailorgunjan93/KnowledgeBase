@@ -1,3 +1,32 @@
+def _aws_error(err: Exception, model: str) -> ValueError:
+    s = str(err)
+    t = type(err).__name__
+    if "ThrottlingException" in t or "TooManyRequestsException" in t or "429" in s:
+        return ValueError(
+            "AWS Bedrock rate limit exceeded. Please wait and try again."
+        )
+    if "UnrecognizedClientException" in t or "InvalidSignatureException" in t or "AuthFailure" in s:
+        return ValueError(
+            "AWS credentials are invalid. Go to Settings → AWS Bedrock and check your Access Key and Secret Key."
+        )
+    if "AccessDeniedException" in t or "403" in s:
+        return ValueError(
+            f"AWS Bedrock access denied for model '{model}'. "
+            "Ensure your IAM user has 'bedrock:InvokeModel' permission and the model is enabled in your AWS region."
+        )
+    if "ValidationException" in t and "model" in s.lower():
+        return ValueError(
+            f"AWS Bedrock model '{model}' is not available in your region. "
+            "Go to Settings → AWS Bedrock and select a different model or region."
+        )
+    if "ResourceNotFoundException" in t or "404" in s:
+        return ValueError(
+            f"AWS Bedrock model '{model}' was not found. "
+            "Go to Settings → AWS Bedrock and select a different model."
+        )
+    return ValueError(f"AWS Bedrock error: {s}")
+
+
 class AWSBedrockLLMAdapter:
     """LLMPort implementation using AWS Bedrock Converse API."""
 
@@ -36,7 +65,11 @@ class AWSBedrockLLMAdapter:
         if system_msgs:
             kwargs["system"] = system_msgs
 
-        response = self._client.converse(**kwargs)
+        try:
+            response = self._client.converse(**kwargs)
+        except Exception as err:
+            raise _aws_error(err, self._model) from err
+
         return response["output"]["message"]["content"][0]["text"]
 
     def embed(self, text: str) -> list[float]:
