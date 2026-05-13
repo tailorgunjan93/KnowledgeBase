@@ -28,6 +28,7 @@ body {
   flex-direction: column;
   background: var(--color-bg);
   min-width: 0;
+  overflow: hidden;
 }
 
 /* ── Sidebar ────────────────────────────── */
@@ -38,12 +39,8 @@ body {
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  transition: background var(--transition-slow), border-color var(--transition-slow);
-}
-
-.sidebar-head {
-  padding: var(--space-5) var(--space-4) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
+  transition: width 0.2s ease, background var(--transition-slow), border-color var(--transition-slow);
+  overflow: hidden;
 }
 
 .brand { display: flex; align-items: center; gap: var(--space-3); }
@@ -240,6 +237,140 @@ body {
   color: var(--color-error);
 }
 
+/* ── Sidebar collapsed ──────────────────── */
+.sidebar-collapsed {
+  width: 56px !important;
+}
+
+.sidebar-collapse-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-faint);
+  padding: 4px;
+  border-radius: var(--radius-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  margin-left: auto;
+}
+
+.sidebar-collapse-btn:hover { color: var(--color-text); background: var(--color-surface-alt); }
+
+.sidebar-head {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 60px;
+}
+
+/* History section in sidebar */
+.history-section { margin-top: var(--space-3); }
+
+.history-section-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-xs);
+  transition: background var(--transition-fast);
+}
+
+.history-section-header:hover { background: var(--color-surface-alt); }
+
+.thread-del-btn {
+  opacity: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-faint);
+  padding: 3px;
+  border-radius: var(--radius-xs);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+}
+
+.thread-item:hover .thread-del-btn { opacity: 1; }
+.thread-del-btn:hover { color: var(--color-error); background: var(--color-error-bg); }
+
+/* ── Topbar action buttons ──────────────── */
+.topbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px var(--space-3);
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.topbar-btn:hover { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-primary-light); }
+.topbar-btn-active { background: var(--color-primary-light) !important; border-color: var(--color-primary) !important; color: var(--color-primary) !important; }
+
+/* ── Chat slide-in panel ────────────────── */
+.chat-panel {
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  animation: slideDown 0.2s ease-out;
+  flex-shrink: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.chat-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.chat-panel-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-faint);
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  transition: all var(--transition-fast);
+}
+
+.chat-panel-close:hover { color: var(--color-error); background: var(--color-error-bg); }
+
+.chat-panel-body {
+  padding: var(--space-4) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 /* ── Chat Layout ────────────────────────── */
 .chat-layout {
   display: flex;
@@ -369,6 +500,7 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
 }
 
 .chat-topbar {

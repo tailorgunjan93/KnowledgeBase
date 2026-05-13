@@ -50,7 +50,15 @@ async def register(req: SignupRequest, db: AsyncSession = Depends(get_db_session
 
     # Create default settings
     settings_repo = UserSettingRepository(UserSetting, db)
-    for key in ["groq_api_key", "groq_model"]:
+    for key in [
+        "active_provider",
+        "groq_api_key", "groq_model",
+        "openai_api_key", "openai_model",
+        "gemini_api_key", "gemini_model",
+        "nvidia_api_key", "nvidia_model",
+        "aws_access_key_id", "aws_secret_access_key", "aws_region", "aws_model",
+        "ollama_model",
+    ]:
         await settings_repo.upsert(user.id, key, "")
 
     await db.commit()

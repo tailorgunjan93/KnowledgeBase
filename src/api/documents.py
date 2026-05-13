@@ -9,19 +9,19 @@ from pathlib import Path
 
 try:
     from .deps import get_db_session, get_current_user
-    from ..infrastructure.database.repositories import DocumentRepository, KnowledgeBaseRepository, UserSettingRepository
-    from ..domain.models import Document, User, UserSetting, KnowledgeBase
+    from ..infrastructure.database.repositories import DocumentRepository, KnowledgeBaseRepository
+    from ..domain.models import Document, User, KnowledgeBase
     from ..shared.exceptions import NotFoundError, ValidationError
 except (ImportError, ModuleNotFoundError):
     try:
         from src.api.deps import get_db_session, get_current_user
-        from src.infrastructure.database.repositories import DocumentRepository, KnowledgeBaseRepository, UserSettingRepository
-        from src.domain.models import Document, User, UserSetting, KnowledgeBase
+        from src.infrastructure.database.repositories import DocumentRepository, KnowledgeBaseRepository
+        from src.domain.models import Document, User, KnowledgeBase
         from src.shared.exceptions import NotFoundError, ValidationError
     except (ImportError, ModuleNotFoundError):
         from api.deps import get_db_session, get_current_user
-        from db.repositories import DocumentRepository, KnowledgeBaseRepository, UserSettingRepository
-        from db.models import Document, User, UserSetting, KnowledgeBase
+        from db.repositories import DocumentRepository, KnowledgeBaseRepository
+        from db.models import Document, User, KnowledgeBase
         from shared.exceptions import NotFoundError, ValidationError
 
 router = APIRouter(prefix="/api", tags=["documents"])
@@ -277,18 +277,19 @@ async def summarize(
     db: AsyncSession = Depends(get_db_session)
 ):
     from ..core.services.summarizer import Summarizer
+    from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
+    from fastapi.concurrency import run_in_threadpool
 
-    settings_repo = UserSettingRepository(UserSetting, db)
-    api_key_setting = await settings_repo.get_by_user_and_key(current_user.id, "groq_api_key")
-    api_key = api_key_setting.value if api_key_setting else None
-
-    if not api_key:
-        from ..shared.config import get_settings
-        api_key = get_settings().groq_api_key
+    try:
+        llm = await get_llm_for_user(current_user.id, db)  # type: ignore[arg-type]
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
     summarizer = Summarizer()
-    result = summarizer.summarize_text(req.text, api_key=api_key, max_length=req.max_length)
-    
+    result = await run_in_threadpool(
+        summarizer.summarize_text_with_llm, req.text, llm, req.max_length or 500
+    )
+
     if "error" in result:
         raise ValidationError(result["error"])
 
@@ -315,19 +316,18 @@ async def summarize_file(
     db: AsyncSession = Depends(get_db_session)
 ):
     from ..core.services.summarizer import Summarizer
-    
-    settings_repo = UserSettingRepository(UserSetting, db)
-    api_key_setting = await settings_repo.get_by_user_and_key(current_user.id, "groq_api_key")
-    api_key = api_key_setting.value if api_key_setting else None
+    from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
+    from fastapi.concurrency import run_in_threadpool
 
-    if not api_key:
-        from ..shared.config import get_settings
-        api_key = get_settings().groq_api_key
+    try:
+        llm = await get_llm_for_user(current_user.id, db)  # type: ignore[arg-type]
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
     upload_dir = Path(f"data_storage/uploads/temp_{current_user.id}")
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_path = upload_dir / f"{uuid.uuid4()}_{file.filename}"
-    
+
     with file_path.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
@@ -336,12 +336,14 @@ async def summarize_file(
         if file_path.exists():
             file_path.unlink()
         raise ValidationError(content)
-    
+
     if file_path.exists():
         file_path.unlink()
 
     summarizer = Summarizer()
-    result = summarizer.summarize_text(content, api_key=api_key, max_length=max_length)
+    result = await run_in_threadpool(
+        summarizer.summarize_text_with_llm, content, llm, max_length
+    )
     
     if "error" in result:
         raise ValidationError(result["error"])
