@@ -130,6 +130,20 @@ async def get_session_messages(
     ]
 
 
+@router.delete("/sessions/{session_id}", status_code=204)
+async def delete_session(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    repo = ChatSessionRepository(ChatSession, db)
+    session = await repo.get_by_user_and_id(session_id, current_user.id)  # type: ignore[arg-type]
+    if not session:
+        raise HTTPException(404, "Session not found")
+    await repo.delete(session_id)
+    await db.commit()
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     request: Request,
@@ -164,8 +178,7 @@ async def chat(
     # Perform RAG chat using the injected service
     try:
         from fastapi.concurrency import run_in_threadpool
-        rag_service = request.app.state.rag_service
-        
+
         context_override = None
         sources_override = None
         
@@ -187,7 +200,19 @@ async def chat(
                     context_override = "\n\n".join([f"Source (Doc {s.get('doc_id')}):\n{s.get('text', '')}" for s in search_results])
                     sources_override = search_results
 
-        if req.enable_web_search:
+        _CONVERSATIONAL = {
+            "hello", "hi", "hey", "hiya", "howdy", "sup", "yo",
+            "thanks", "thank you", "ty", "thx", "cheers",
+            "ok", "okay", "sure", "alright", "great", "cool",
+            "yes", "no", "maybe", "nope", "yep", "yup",
+            "bye", "goodbye", "cya", "see you", "later",
+            "good morning", "good afternoon", "good evening", "good night",
+            "how are you", "how are you doing", "what's up", "whats up",
+        }
+        _msg_lower = req.message.strip().lower().rstrip("!?.,")
+        _skip_web = _msg_lower in _CONVERSATIONAL or (len(_msg_lower.split()) <= 2 and len(_msg_lower) < 20)
+
+        if req.enable_web_search and not _skip_web:
             try:
                 def _run_web_search():
                     import httpx as _httpx
@@ -263,7 +288,21 @@ async def chat(
             except Exception as web_err:
                 logger.warning(f"Web search failed: {web_err}")
 
-        result = await run_in_threadpool(rag_service.answer, req.message, context_override, sources_override)
+        from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
+        from ..application.rag_service import SelfCorrectingRAG
+
+        try:
+            llm = await get_llm_for_user(current_user.id, db)  # type: ignore[arg-type]
+        except ValueError as llm_err:
+            raise HTTPException(422, str(llm_err))
+
+        per_req_rag = SelfCorrectingRAG(
+            llm=llm,
+            vector_store=request.app.state.vector_store,
+            confidence_threshold=get_settings().confidence_threshold,
+            max_retries=get_settings().max_retries,
+        )
+        result = await run_in_threadpool(per_req_rag.answer, req.message, context_override, sources_override)
 
         # Save assistant message
         await msg_repo.create(
@@ -293,60 +332,173 @@ async def chat(
         raise HTTPException(500, f"Chat error: {str(e)} - Details: {error_details}")
 
 
-# --- Known-good Groq models as a fallback when the API key is absent ---
-_FALLBACK_MODELS = [
-    {"id": "llama-3.1-8b-instant",     "label": "LLaMA 3.1 — 8B Instant (fast)"},
-    {"id": "llama-3.1-70b-versatile",  "label": "LLaMA 3.1 — 70B Versatile"},
-    {"id": "llama3-8b-8192",           "label": "LLaMA 3 — 8B"},
-    {"id": "llama3-70b-8192",          "label": "LLaMA 3 — 70B"},
-    {"id": "gemma2-9b-it",             "label": "Gemma 2 — 9B"},
-    {"id": "gemma-7b-it",              "label": "Gemma — 7B"},
-]
-
-# Chat-compatible Groq models are identified by their id prefix.
-_CHAT_PREFIXES = ("llama", "mixtral", "gemma", "whisper", "deepseek", "qwen")
+# Static model lists per provider (used as fallback or when live fetch isn't available)
+_PROVIDER_MODELS: dict = {
+    "groq": [
+        {"id": "llama-3.1-8b-instant",    "label": "LLaMA 3.1 8B Instant (fast)"},
+        {"id": "llama-3.1-70b-versatile", "label": "LLaMA 3.1 70B Versatile"},
+        {"id": "llama3-8b-8192",          "label": "LLaMA 3 8B"},
+        {"id": "llama3-70b-8192",         "label": "LLaMA 3 70B"},
+        {"id": "gemma2-9b-it",            "label": "Gemma 2 9B"},
+    ],
+    "openai": [
+        {"id": "gpt-4o",       "label": "GPT-4o"},
+        {"id": "gpt-4o-mini",  "label": "GPT-4o Mini (fast)"},
+        {"id": "gpt-4-turbo",  "label": "GPT-4 Turbo"},
+        {"id": "o1-mini",      "label": "o1 Mini (reasoning)"},
+    ],
+    "gemini": [
+        {"id": "gemini-2.0-flash",    "label": "Gemini 2.0 Flash"},
+        {"id": "gemini-1.5-pro",      "label": "Gemini 1.5 Pro (1M context)"},
+        {"id": "gemini-1.5-flash",    "label": "Gemini 1.5 Flash"},
+        {"id": "gemini-1.5-flash-8b", "label": "Gemini 1.5 Flash 8B (fast)"},
+    ],
+    "nvidia": [
+        {"id": "meta/llama-3.1-8b-instruct",                   "label": "Meta Llama 3.1 8B"},
+        {"id": "meta/llama-3.1-70b-instruct",                  "label": "Meta Llama 3.1 70B"},
+        {"id": "meta/llama-3.3-70b-instruct",                  "label": "Meta Llama 3.3 70B"},
+        {"id": "nvidia/llama-3.1-nemotron-70b-instruct",       "label": "NVIDIA Nemotron 70B"},
+        {"id": "mistralai/mistral-7b-instruct-v0.3",           "label": "Mistral 7B"},
+        {"id": "microsoft/phi-3-mini-128k-instruct",           "label": "Phi-3 Mini 128K"},
+    ],
+    "aws": [
+        {"id": "anthropic.claude-3-5-sonnet-20241022-v2:0", "label": "Claude 3.5 Sonnet"},
+        {"id": "anthropic.claude-3-haiku-20240307-v1:0",    "label": "Claude 3 Haiku (fast)"},
+        {"id": "amazon.nova-lite-v1:0",                     "label": "Amazon Nova Lite"},
+        {"id": "meta.llama3-8b-instruct-v1:0",              "label": "Llama 3 8B"},
+        {"id": "meta.llama3-70b-instruct-v1:0",             "label": "Llama 3 70B"},
+        {"id": "mistral.mistral-7b-instruct-v0:2",          "label": "Mistral 7B"},
+    ],
+}
 
 
 @router.get("/models")
 async def list_models(
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_provider: Optional[str] = Header(None, alias="X-Provider"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ):
-    """Return available Groq chat models. Fetches live list when an API key is present."""
-    # Prefer the key sent by the frontend; fall back to the user's stored key.
-    api_key = x_api_key
-    if not api_key:
-        repo = UserSettingRepository(UserSetting, db)
-        setting = await repo.get_by_user_and_key(current_user.id, "groq_api_key")  # type: ignore[arg-type]
-        api_key = str(setting.value) if setting and setting.value else None
-    if not api_key:
-        api_key = get_settings().groq_api_key
+    from fastapi.concurrency import run_in_threadpool
+    repo = UserSettingRepository(UserSetting, db)
+    settings = get_settings()
 
-    if not api_key:
-        return {"source": "fallback", "models": _FALLBACK_MODELS}
+    # Resolve provider
+    provider = x_provider
+    if not provider:
+        s = await repo.get_by_user_and_key(current_user.id, "active_provider")  # type: ignore[arg-type]
+        provider = str(s.value).strip() if s and s.value else None
+    provider = provider or "groq"
 
-    try:
-        from groq import AsyncGroq
-        client = AsyncGroq(api_key=api_key)
-        response = await client.models.list()
-        models = [
-            {"id": m.id, "label": _make_label(m.id)}
-            for m in sorted(response.data, key=lambda m: m.id)
-            if "whisper" not in m.id.lower()
-        ]
-        if not models:
-            return {"source": "fallback", "models": _FALLBACK_MODELS}
-        return {"source": "groq", "models": models}
-    except Exception as exc:
-        logger.warning(f"Could not fetch Groq model list: {exc}")
-        return {"source": "fallback", "models": _FALLBACK_MODELS}
+    async def _get_setting(key: str):
+        s = await repo.get_by_user_and_key(current_user.id, key)  # type: ignore[arg-type]
+        v = str(s.value).strip() if s and s.value else None
+        return v or None
+
+    if provider == "groq":
+        api_key = x_api_key or await _get_setting("groq_api_key") or getattr(settings, "groq_api_key", None)
+        if not api_key:
+            return {"source": "fallback", "models": _PROVIDER_MODELS["groq"]}
+        try:
+            from groq import AsyncGroq
+            client = AsyncGroq(api_key=api_key)
+            response = await client.models.list()
+            models = [
+                {"id": m.id, "label": _make_label(m.id)}
+                for m in sorted(response.data, key=lambda m: m.id)
+                if "whisper" not in m.id.lower()
+            ]
+            return {"source": "groq", "models": models or _PROVIDER_MODELS["groq"]}
+        except Exception as exc:
+            logger.warning(f"Could not fetch Groq model list: {exc}")
+            return {"source": "fallback", "models": _PROVIDER_MODELS["groq"]}
+
+    if provider == "openai":
+        api_key = x_api_key or await _get_setting("openai_api_key") or getattr(settings, "openai_api_key", None)
+        if not api_key:
+            return {"source": "fallback", "models": _PROVIDER_MODELS["openai"]}
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=api_key)
+            response = await client.models.list()
+            chat_ids = {"gpt", "o1", "o3"}
+            models = [
+                {"id": m.id, "label": m.id}
+                for m in sorted(response.data, key=lambda m: m.id)
+                if any(m.id.startswith(p) for p in chat_ids)
+            ]
+            return {"source": "openai", "models": models or _PROVIDER_MODELS["openai"]}
+        except Exception as exc:
+            logger.warning(f"Could not fetch OpenAI model list: {exc}")
+            return {"source": "fallback", "models": _PROVIDER_MODELS["openai"]}
+
+    if provider == "gemini":
+        api_key = x_api_key or await _get_setting("gemini_api_key") or getattr(settings, "gemini_api_key", None)
+        if not api_key:
+            return {"source": "fallback", "models": _PROVIDER_MODELS["gemini"]}
+        try:
+            def _list_gemini():
+                from google import genai
+                client = genai.Client(api_key=api_key)
+                result = []
+                for m in client.models.list():
+                    if "generateContent" in (m.supported_generation_methods or []):
+                        model_id = m.name.removeprefix("models/") if m.name else m.name
+                        label = m.display_name or model_id
+                        result.append({"id": model_id, "label": label})
+                return sorted(result, key=lambda x: x["id"])
+            models = await run_in_threadpool(_list_gemini)
+            return {"source": "gemini", "models": models or _PROVIDER_MODELS["gemini"]}
+        except Exception as exc:
+            logger.warning(f"Could not fetch Gemini model list: {exc}")
+            return {"source": "fallback", "models": _PROVIDER_MODELS["gemini"]}
+
+    if provider == "nvidia":
+        api_key = x_api_key or await _get_setting("nvidia_api_key") or getattr(settings, "nvidia_api_key", None)
+        if not api_key:
+            return {"source": "fallback", "models": _PROVIDER_MODELS["nvidia"]}
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(api_key=api_key, base_url="https://integrate.api.nvidia.com/v1")
+            response = await client.models.list()
+            models = [
+                {"id": m.id, "label": m.id}
+                for m in sorted(response.data, key=lambda m: m.id)
+            ]
+            return {"source": "nvidia", "models": models or _PROVIDER_MODELS["nvidia"]}
+        except Exception as exc:
+            logger.warning(f"Could not fetch NVIDIA model list: {exc}")
+            return {"source": "fallback", "models": _PROVIDER_MODELS["nvidia"]}
+
+    if provider == "aws":
+        access_key = await _get_setting("aws_access_key_id")
+        secret_key = await _get_setting("aws_secret_access_key")
+        region = await _get_setting("aws_region") or "us-east-1"
+        if not access_key or not secret_key:
+            return {"source": "fallback", "models": _PROVIDER_MODELS["aws"]}
+        try:
+            def _list_aws():
+                import boto3
+                client = boto3.client("bedrock",
+                    aws_access_key_id=access_key,
+                    aws_secret_access_key=secret_key,
+                    region_name=region)
+                response = client.list_foundation_models(byOutputModality="TEXT")
+                result = []
+                for m in response.get("modelSummaries", []):
+                    result.append({"id": m["modelId"], "label": m.get("modelName", m["modelId"])})
+                return sorted(result, key=lambda x: x["id"])
+            models = await run_in_threadpool(_list_aws)
+            return {"source": "aws", "models": models or _PROVIDER_MODELS["aws"]}
+        except Exception as exc:
+            logger.warning(f"Could not fetch AWS Bedrock model list: {exc}")
+            return {"source": "fallback", "models": _PROVIDER_MODELS["aws"]}
+
+    return {"source": "fallback", "models": _PROVIDER_MODELS.get(provider, [])}
 
 
 def _make_label(model_id: str) -> str:
-    """Turn a Groq model id like 'llama-3.1-8b-instant' into a readable label."""
     parts = model_id.split("-")
-    # capitalise first segment, keep the rest as-is
     return " — ".join([parts[0].capitalize()] + parts[1:]) if parts else model_id
 
 
@@ -355,29 +507,34 @@ async def get_llm_provider(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
-    from ..core.settings import get_settings
     from ..services.ollama_service import OllamaService
-    
-    repo = UserSettingRepository(UserSetting, db)
-    setting = await repo.get_by_user_and_key(current_user.id, "groq_api_key")  # type: ignore[arg-type]
-    api_key = str(setting.value) if setting and setting.value else None
-    
-    settings = get_settings()
-    if not api_key:
-        api_key = settings.groq_api_key
 
+    repo = UserSettingRepository(UserSetting, db)
+    settings = get_settings()
+
+    async def _get(key: str):
+        s = await repo.get_by_user_and_key(current_user.id, key)  # type: ignore[arg-type]
+        return str(s.value).strip() if s and s.value else None
+
+    active_provider = await _get("active_provider") or settings.active_provider or "groq"
+    groq_key    = await _get("groq_api_key")    or settings.groq_api_key
+    openai_key  = await _get("openai_api_key")  or settings.openai_api_key
+    gemini_key  = await _get("gemini_api_key")  or settings.gemini_api_key
+    nvidia_key  = await _get("nvidia_api_key")  or settings.nvidia_api_key
+    aws_key     = await _get("aws_access_key_id") or settings.aws_access_key_id
     ollama_running = OllamaService.check_available(settings.ollama_base_url)
-    
-    active_provider = "none"
-    if api_key:
-        active_provider = "groq"
-    elif ollama_running:
-        active_provider = "ollama"
-        
+
+    has_creds = {
+        "groq":   bool(groq_key),
+        "openai": bool(openai_key),
+        "gemini": bool(gemini_key),
+        "nvidia": bool(nvidia_key),
+        "aws":    bool(aws_key),
+        "ollama": ollama_running,
+    }
+    display_provider = active_provider if has_creds.get(active_provider) else "none"
+
     return {
-        "active_provider": active_provider,
-        "ollama": {
-            "available": ollama_running,
-            "model": settings.ollama_model
-        }
+        "active_provider": display_provider,
+        "ollama": {"available": ollama_running, "model": settings.ollama_model},
     }

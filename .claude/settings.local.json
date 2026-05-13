@@ -6,7 +6,8 @@
       "Bash(curl -s http://localhost:8000/health)",
       "Bash(kill %1)",
       "Bash(npm run *)",
-      "Bash(main.jsx\")"
+      "Bash(main.jsx\")",
+      "PowerShell(.venv\\\\Scripts\\\\pip install \"openai>=1.0.0\" \"google-generativeai>=0.7.0\" \"boto3>=1.35.0\" --quiet 2>&1)"
     ]
   }
 }

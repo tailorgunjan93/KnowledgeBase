@@ -6,7 +6,10 @@ export const update = (key, value) => httpClient.post('/auth/settings', { key, v
 
 export const getLLMProvider = () => httpClient.get('/api/llm-provider');
 
-export const fetchModels = (apiKey) =>
+export const fetchModels = (provider, apiKey) =>
   httpClient.get('/api/models', {
-    headers: apiKey ? { 'X-API-Key': apiKey } : {},
+    headers: {
+      ...(provider ? { 'X-Provider': provider } : {}),
+      ...(apiKey   ? { 'X-API-Key': apiKey }    : {}),
+    },
   });

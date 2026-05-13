@@ -12,13 +12,34 @@ class AppSettings(BaseSettings):
     # Database
     db_url: str = "sqlite:///data_storage/knowledge_base.db"
 
-    # Groq API
+    # Active provider
+    active_provider: str = "groq"
+
+    # Groq
     groq_api_key: Optional[str] = None
+    groq_model: str = "llama-3.1-8b-instant"
+    summarizer_model: str = "llama-3.1-8b-instant"
+
+    # OpenAI
+    openai_api_key: Optional[str] = None
+    openai_model: str = "gpt-4o-mini"
+
+    # Google Gemini
+    gemini_api_key: Optional[str] = None
+    gemini_model: str = "gemini-1.5-flash"
+
+    # NVIDIA NIM
+    nvidia_api_key: Optional[str] = None
+    nvidia_model: str = "meta/llama-3.1-8b-instruct"
+
+    # AWS Bedrock
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
+    aws_region: str = "us-east-1"
+    aws_model: str = "anthropic.claude-3-haiku-20240307-v1:0"
 
     # Serper (Google Search API)
     serper_api_key: Optional[str] = None
-    groq_model: str = "llama-3.1-8b-instant"
-    summarizer_model: str = "llama-3.1-8b-instant"
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"

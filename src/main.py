@@ -64,9 +64,9 @@ def create_app() -> FastAPI:
     vector_store = FAISSAdapter(embedder)
     llm = GroqLLMAdapter(settings)
     rag_service = SelfCorrectingRAG(llm=llm, vector_store=vector_store)
-    
-    # Store in app state for access in routes if needed
+
     app.state.rag_service = rag_service
+    app.state.vector_store = vector_store  # exposed for per-request factory
 
     # Include routers
     from .api import auth_router, chat_router, kb_router, documents_router

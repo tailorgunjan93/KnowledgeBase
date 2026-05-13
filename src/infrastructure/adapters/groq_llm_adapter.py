@@ -1,14 +1,19 @@
 """Wrapper around the Groq SDK. All Groq imports live here."""
 from groq import Groq
-from src.core.settings import AppSettings
 
 
 class GroqLLMAdapter:
-    """Implements LLMPort using the Groq SDK."""
+    """Implements LLMPort using the Groq SDK.
 
-    def __init__(self, settings: AppSettings) -> None:
-        self._client = Groq(api_key=settings.groq_api_key)
-        self._model = settings.groq_model  # e.g. "mixtral-8x7b-32768"
+    Accepts either a legacy AppSettings object or explicit api_key/model kwargs
+    so it can be used both at startup and from the per-request provider factory.
+    """
+
+    def __init__(self, settings=None, *, api_key: str = None, model: str = None) -> None:
+        resolved_key = api_key or (settings.groq_api_key if settings else None) or ""
+        resolved_model = model or (settings.groq_model if settings else "llama-3.1-8b-instant")
+        self._client = Groq(api_key=resolved_key)
+        self._model = resolved_model
 
     def chat(self, messages: list[dict], max_tokens: int = 1000) -> str:
         response = self._client.chat.completions.create(

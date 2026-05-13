@@ -21,17 +21,14 @@ class Summarizer:
     def summarize_text(
         self, text: str, api_key: str = None, max_length: int = 500
     ) -> Dict[str, Any]:
-        """Summarize raw text using best available LLM provider."""
+        """Summarize raw text using best available LLM provider (legacy path)."""
         original_len = len(text)
-        
         try:
             if len(text) > self.max_chunk_chars:
                 summary = self._summarize_large_text(text, api_key, max_length)
             else:
                 summary = self._generate_summary(text, api_key, max_length)
-                
             key_points = self._extract_key_points(summary)
-
             return {
                 "summary": summary,
                 "key_points": key_points,
@@ -41,6 +38,59 @@ class Summarizer:
         except Exception as e:
             logger.error(f"Summarization failed: {e}")
             return {"error": str(e)}
+
+    def summarize_text_with_llm(
+        self, text: str, llm, max_length: int = 500
+    ) -> Dict[str, Any]:
+        """Summarize using an injected LLM adapter (supports all providers)."""
+        original_len = len(text)
+        try:
+            if len(text) > self.max_chunk_chars:
+                summary = self._summarize_large_with_llm(text, llm, max_length)
+            else:
+                summary = self._generate_with_llm(text, llm, max_length)
+            key_points = self._extract_key_points(summary)
+            return {
+                "summary": summary,
+                "key_points": key_points,
+                "original_length": original_len,
+                "summary_length": len(summary),
+            }
+        except Exception as e:
+            logger.error(f"Summarization failed: {e}")
+            return {"error": str(e)}
+
+    def _generate_with_llm(self, text: str, llm, max_length: int) -> str:
+        messages = [
+            {"role": "system", "content": "You are a precise document summarizer."},
+            {"role": "user", "content": (
+                f"Summarize the following text in about {max_length} words. "
+                f"Be concise, clear, and capture the key points:\n\n{text}"
+            )},
+        ]
+        return llm.chat(messages, max_tokens=max_length * 5)
+
+    def _summarize_large_with_llm(self, text: str, llm, max_length: int) -> str:
+        from concurrent.futures import ThreadPoolExecutor
+        chunks = [text[i:i + self.max_chunk_chars] for i in range(0, len(text), self.max_chunk_chars)]
+        chunks = chunks[:15]
+        logger.info(f"Summarizing {len(chunks)} chunks with injected LLM...")
+
+        def _chunk(chunk):
+            return self._generate_with_llm(
+                f"Provide a brief 2-paragraph technical summary of this section:\n\n{chunk}",
+                llm, max_length // 2,
+            )
+
+        with ThreadPoolExecutor(max_workers=min(len(chunks), self.max_workers)) as ex:
+            chunk_summaries = list(ex.map(_chunk, chunks))
+
+        combined = "\n\n".join(chunk_summaries)
+        return self._generate_with_llm(
+            f"Below are summaries of different sections. Create a final cohesive summary "
+            f"of about {max_length} words covering all key points:\n\n{combined}",
+            llm, max_length,
+        )
 
     def _summarize_large_text(self, text: str, api_key: str, max_length: int) -> str:
         """Handle large text by summarizing chunks in parallel."""
