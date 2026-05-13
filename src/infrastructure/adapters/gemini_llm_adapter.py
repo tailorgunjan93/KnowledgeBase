@@ -30,11 +30,35 @@ class GeminiLLMAdapter:
             system_instruction="\n".join(system_parts) if system_parts else None,
         )
 
-        response = self._client.models.generate_content(
-            model=self._model_name,
-            contents=contents,
-            config=config,
-        )
+        try:
+            response = self._client.models.generate_content(
+                model=self._model_name,
+                contents=contents,  # type: ignore[arg-type]
+                config=config,
+            )
+        except Exception as api_err:
+            s = str(api_err)
+            if "429" in s or "RESOURCE_EXHAUSTED" in s:
+                raise ValueError(
+                    "Gemini API rate limit exceeded. You have hit your free-tier quota. "
+                    "Please wait and try again, or upgrade your Google AI plan at ai.google.dev."
+                ) from api_err
+            if "401" in s or "403" in s or "API_KEY_INVALID" in s or "UNAUTHENTICATED" in s:
+                raise ValueError(
+                    "Gemini API key is invalid or expired. "
+                    "Go to Settings → Gemini and check your API key."
+                ) from api_err
+            if "404" in s or "NOT_FOUND" in s:
+                raise ValueError(
+                    f"Gemini model '{self._model_name}' is not available or has been deprecated. "
+                    "Go to Settings → Gemini and select a different model (e.g. gemini-2.0-flash)."
+                ) from api_err
+            if "503" in s or "UNAVAILABLE" in s:
+                raise ValueError(
+                    "Gemini service is temporarily unavailable. Please try again in a moment."
+                ) from api_err
+            raise
+
         try:
             text = response.text
             if text is not None:

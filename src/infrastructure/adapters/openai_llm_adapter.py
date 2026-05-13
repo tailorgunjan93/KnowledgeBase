@@ -1,3 +1,24 @@
+def _openai_error(err: Exception, model: str) -> ValueError:
+    s = str(err)
+    t = type(err).__name__
+    if "429" in s or "RateLimitError" in t:
+        return ValueError(
+            "OpenAI rate limit exceeded. Please wait and try again, "
+            "or check your usage limits at platform.openai.com."
+        )
+    if "401" in s or "403" in s or "AuthenticationError" in t:
+        return ValueError(
+            "OpenAI API key is invalid or expired. Go to Settings → OpenAI and check your API key."
+        )
+    if "404" in s or "NotFoundError" in t:
+        return ValueError(
+            f"OpenAI model '{model}' was not found. Go to Settings → OpenAI and select a different model."
+        )
+    if "503" in s or "ServiceUnavailableError" in t:
+        return ValueError("OpenAI service is temporarily unavailable. Please try again in a moment.")
+    return ValueError(f"OpenAI API error: {s}")
+
+
 class OpenAILLMAdapter:
     """LLMPort implementation using the OpenAI SDK."""
 
@@ -10,11 +31,15 @@ class OpenAILLMAdapter:
         self._model = model
 
     def chat(self, messages: list[dict], max_tokens: int = 1000) -> str:
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,
-            max_tokens=max_tokens,
-        )
+        try:
+            response = self._client.chat.completions.create(  # type: ignore[call-overload]
+                model=self._model,
+                messages=messages,
+                max_tokens=max_tokens,
+            )
+        except Exception as err:
+            raise _openai_error(err, self._model) from err
+
         choices = response.choices if response.choices else []
         if not choices:
             raise ValueError(f"OpenAI returned no choices (model={self._model})")

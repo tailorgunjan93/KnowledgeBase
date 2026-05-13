@@ -26,7 +26,7 @@ class AppSettings(BaseSettings):
 
     # Google Gemini
     gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-1.5-flash"
+    gemini_model: str = "gemini-2.0-flash"
 
     # NVIDIA NIM
     nvidia_api_key: Optional[str] = None
