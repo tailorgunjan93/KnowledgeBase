@@ -35,7 +35,21 @@ class GeminiLLMAdapter:
             contents=contents,
             config=config,
         )
-        return response.text
+        try:
+            text = response.text
+            if text is not None:
+                return text
+        except (ValueError, AttributeError):
+            pass
+        # response.text is None or raised — try extracting from candidates directly
+        candidates = response.candidates or []
+        if candidates and candidates[0].content and candidates[0].content.parts:
+            return candidates[0].content.parts[0].text or ""
+        finish = getattr(candidates[0] if candidates else None, "finish_reason", "UNKNOWN")
+        raise RuntimeError(
+            f"Gemini returned no text content (finish_reason={finish}). "
+            "The request may have been blocked by safety filters."
+        )
 
     def embed(self, text: str) -> list[float]:
         raise NotImplementedError("Use SentenceTransformerEmbedder for embeddings.")

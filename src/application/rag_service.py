@@ -25,55 +25,49 @@ class SelfCorrectingRAG:
 
     def answer(self, query: str, context_override: Optional[str] = None, sources_override: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """Main entry point to get an answer for a query."""
-        import sys
         log.info(f"RAG query started: {query}")
-        print(f"DEBUG RAGService: query={query[:50]}", file=sys.stderr)
-        sys.stderr.flush()
-        
+
         # 1. Retrieval
         if context_override is not None:
             context = context_override
             sources = sources_override if sources_override is not None else [{"text": "Manual override", "source": "input"}]
         else:
-            print(f"DEBUG RAGService: calling vector_store.search()", file=sys.stderr)
-            sys.stderr.flush()
             sources = self._vector_store.search(query)
-            print(f"DEBUG RAGService: retrieved {len(sources)} sources", file=sys.stderr)
-            sys.stderr.flush()
-            for i, s in enumerate(sources):
-                print(f"  source[{i}]: {s.get('doc_id')}, chunk_id={s.get('chunk_id')}, text_len={len(s.get('text',''))}", file=sys.stderr)
             context = "\n\n".join([f"Source: {s.get('title', 'Unknown')}\n{s.get('text', '')}" for s in sources])
 
         # 2. Generation
         has_web = context_override is not None and "[WEB SEARCH" in (context_override or "")
-        if has_web:
-            system_msg = (
-                "You are a helpful AI assistant with access to real-time web search results. "
-                "The context below contains live web search results fetched for this query. "
-                "Use these results to answer the question with current, up-to-date information. "
-                "Cite the titles or URLs from the results when relevant."
-            )
+
+        if not context.strip():
+            # No KB context — respond conversationally without forcing a RAG wrapper
+            messages = [
+                {"role": "system", "content": "You are a helpful AI assistant. Answer the user's message directly and conversationally."},
+                {"role": "user", "content": query},
+            ]
+        elif has_web:
+            messages = [
+                {"role": "system", "content": (
+                    "You are a helpful AI assistant with access to real-time web search results. "
+                    "The context below contains live web search results fetched for this query. "
+                    "Use these results to answer the question with current, up-to-date information. "
+                    "Cite the titles or URLs from the results when relevant."
+                )},
+                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
+            ]
         else:
-            system_msg = (
-                "You are a helpful AI assistant. Use the provided context to answer questions accurately. "
-                "If the context does not contain the answer, say so."
-            )
-        messages = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
-        ]
-        
-        print(f"DEBUG RAGService: calling LLM.chat() with {len(messages)} messages", file=sys.stderr)
-        sys.stderr.flush()
+            messages = [
+                {"role": "system", "content": (
+                    "You are a helpful AI assistant. Use the provided context to answer questions accurately. "
+                    "If the context does not contain the answer, say so."
+                )},
+                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
+            ]
+
         response = self._llm.chat(messages)
-        print(f"DEBUG RAGService: LLM response len={len(response)}", file=sys.stderr)
-        sys.stderr.flush()
-        
-        # 3. Evaluation (Self-Correction placeholder)
-        confidence = 0.9 # Placeholder
-        
+        confidence = 0.9
+
         return {
             "response": response,
             "confidence": confidence,
-            "sources": sources
+            "sources": sources,
         }
