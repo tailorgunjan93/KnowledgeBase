@@ -14,7 +14,7 @@ export function Sidebar({ activeTab, setActiveTab, sessions, currentSession, onL
 
   useEffect(() => {
     httpClient.get('/api/llm-provider').then(res => setProvider(res.data)).catch(() => {});
-  }, []);
+  }, [activeTab]);
 
   // Fetch sessions when chat tab is active
   useEffect(() => {
