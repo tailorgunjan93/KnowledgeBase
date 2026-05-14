@@ -15,9 +15,15 @@ function AppContent() {
   const fetchSessions = useCallback(async () => {
     try {
       const res = await chatAPI.getSessions();
-      setSessions(res.data || []);
+      const sessionsData = res.data || [];
+      setSessions(sessionsData);
+      
+      // Auto-load latest session if none is active
+      if (!currentSession && sessionsData.length > 0) {
+        setCurrentSession(sessionsData[0].id);
+      }
     } catch { /* silent */ }
-  }, []);
+  }, [currentSession]);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
 

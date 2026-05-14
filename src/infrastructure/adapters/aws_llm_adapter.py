@@ -49,7 +49,7 @@ class AWSBedrockLLMAdapter:
             raise RuntimeError("boto3 not installed: pip install boto3>=1.35.0")
         self._model = model
 
-    def chat(self, messages: list[dict], max_tokens: int = 1000) -> str:
+    def chat(self, messages: list[dict], max_tokens: int = 4096) -> str:
         system_msgs = [{"text": m["content"]} for m in messages if m["role"] == "system"]
         conv_msgs = [
             {"role": m["role"], "content": [{"text": m["content"]}]}
@@ -71,6 +71,30 @@ class AWSBedrockLLMAdapter:
             raise _aws_error(err, self._model) from err
 
         return response["output"]["message"]["content"][0]["text"]
+
+    def chat_stream(self, messages: list[dict], max_tokens: int = 4096):
+        system_msgs = [{"text": m["content"]} for m in messages if m["role"] == "system"]
+        conv_msgs = [
+            {"role": m["role"], "content": [{"text": m["content"]}]}
+            for m in messages
+            if m["role"] != "system"
+        ]
+
+        kwargs: dict = {
+            "modelId": self._model,
+            "messages": conv_msgs,
+            "inferenceConfig": {"maxTokens": max_tokens},
+        }
+        if system_msgs:
+            kwargs["system"] = system_msgs
+
+        try:
+            response = self._client.converse_stream(**kwargs)
+            for event in response.get("stream"):
+                if "contentBlockDelta" in event:
+                    yield event["contentBlockDelta"]["delta"]["text"]
+        except Exception as err:
+            raise _aws_error(err, self._model) from err
 
     def embed(self, text: str) -> list[float]:
         raise NotImplementedError("Use SentenceTransformerEmbedder for embeddings.")

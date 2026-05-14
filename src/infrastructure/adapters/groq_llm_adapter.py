@@ -35,7 +35,7 @@ class GroqLLMAdapter:
         self._client = Groq(api_key=resolved_key)
         self._model = resolved_model
 
-    def chat(self, messages: list[dict], max_tokens: int = 1000) -> str:
+    def chat(self, messages: list[dict], max_tokens: int = 4096) -> str:
         try:
             response = self._client.chat.completions.create(
                 model=self._model,
@@ -52,6 +52,20 @@ class GroqLLMAdapter:
         if content is None:
             raise ValueError("Groq returned empty content")
         return content
+
+    def chat_stream(self, messages: list[dict], max_tokens: int = 4096):
+        try:
+            stream = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as err:
+            raise _groq_error(err, self._model) from err
 
     def embed(self, text: str) -> list[float]:
         raise NotImplementedError("Use SentenceTransformerEmbedder for embeddings.")

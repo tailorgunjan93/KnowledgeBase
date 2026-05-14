@@ -31,7 +31,7 @@ class NvidiaLLMAdapter:
             raise RuntimeError("openai not installed: pip install openai>=1.0.0")
         self._model = model
 
-    def chat(self, messages: list[dict], max_tokens: int = 1000) -> str:
+    def chat(self, messages: list[dict], max_tokens: int = 4096) -> str:
         try:
             response = self._client.chat.completions.create(  # type: ignore[call-overload]
                 model=self._model,
@@ -48,6 +48,20 @@ class NvidiaLLMAdapter:
         if content is None:
             raise ValueError("NVIDIA NIM returned empty content")
         return content
+
+    def chat_stream(self, messages: list[dict], max_tokens: int = 4096):
+        try:
+            stream = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as err:
+            raise _nvidia_error(err, self._model) from err
 
     def embed(self, text: str) -> list[float]:
         raise NotImplementedError("Use SentenceTransformerEmbedder for embeddings.")

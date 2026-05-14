@@ -301,11 +301,13 @@ async def summarize(
 
 async def cleanup_stuck_documents(db: AsyncSession):
     from ..domain.models import Document
-    result = await db.scalars(select(Document).where(Document.index_status == "processing"))
-    stuck_docs = result.all()
-    for doc in stuck_docs:
-        print(f"SYSTEM: Found stuck document {doc.id} ({doc.title}). Resetting to 'failed'.")
-        doc.index_status = "failed"
+    from sqlalchemy import update
+    # Bulk update all stuck documents to 'failed' status
+    await db.execute(
+        update(Document)
+        .where(Document.index_status == "processing")
+        .values(index_status="failed")
+    )
     await db.commit()
 
 @router.post("/summarize/file", response_model=SummarizeResponse)

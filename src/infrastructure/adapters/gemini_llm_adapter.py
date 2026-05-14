@@ -13,7 +13,7 @@ class GeminiLLMAdapter:
             )
         self._model_name = model
 
-    def chat(self, messages: list[dict], max_tokens: int = 1000) -> str:
+    def chat(self, messages: list[dict], max_tokens: int = 4096) -> str:
         system_parts = [m["content"] for m in messages if m["role"] == "system"]
         conversation = [m for m in messages if m["role"] != "system"]
 
@@ -74,6 +74,40 @@ class GeminiLLMAdapter:
             f"Gemini returned no text content (finish_reason={finish}). "
             "The request may have been blocked by safety filters."
         )
+
+    def chat_stream(self, messages: list[dict], max_tokens: int = 4096):
+        system_parts = [m["content"] for m in messages if m["role"] == "system"]
+        conversation = [m for m in messages if m["role"] != "system"]
+
+        contents = [
+            self._types.Content(
+                role="user" if m["role"] == "user" else "model",
+                parts=[self._types.Part(text=m["content"])],
+            )
+            for m in conversation
+        ]
+
+        config = self._types.GenerateContentConfig(
+            max_output_tokens=max_tokens,
+            system_instruction="\n".join(system_parts) if system_parts else None,
+        )
+
+        try:
+            stream = self._client.models.generate_content_stream(
+                model=self._model_name,
+                contents=contents,  # type: ignore[arg-type]
+                config=config,
+            )
+            for chunk in stream:
+                if chunk.text:
+                    yield chunk.text
+        except Exception as api_err:
+            s = str(api_err)
+            if "429" in s or "RESOURCE_EXHAUSTED" in s:
+                raise ValueError("Gemini API rate limit exceeded.") from api_err
+            if "401" in s or "403" in s or "API_KEY_INVALID" in s or "UNAUTHENTICATED" in s:
+                raise ValueError("Gemini API key is invalid or expired.") from api_err
+            raise
 
     def embed(self, text: str) -> list[float]:
         raise NotImplementedError("Use SentenceTransformerEmbedder for embeddings.")

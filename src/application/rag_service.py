@@ -71,3 +71,42 @@ class SelfCorrectingRAG:
             "confidence": confidence,
             "sources": sources,
         }
+
+    def answer_stream(self, query: str, context_override: Optional[str] = None, sources_override: Optional[List[Dict]] = None):
+        """Streaming version of answer."""
+        # 1. Retrieval (same as answer)
+        if context_override is not None:
+            context = context_override
+            sources = sources_override if sources_override is not None else [{"text": "Manual override", "source": "input"}]
+        else:
+            sources = self._vector_store.search(query)
+            context = "\n\n".join([f"Source: {s.get('title', 'Unknown')}\n{s.get('text', '')}" for s in sources])
+
+        # 2. Build messages (same as answer)
+        has_web = context_override is not None and "[WEB SEARCH" in (context_override or "")
+        if not context.strip():
+            messages = [
+                {"role": "system", "content": "You are a helpful AI assistant. Answer the user's message directly and conversationally."},
+                {"role": "user", "content": query},
+            ]
+        elif has_web:
+            messages = [
+                {"role": "system", "content": (
+                    "You are a helpful AI assistant with access to real-time web search results. "
+                    "The context below contains live web search results fetched for this query. "
+                    "Use these results to answer the question with current, up-to-date information. "
+                    "Cite the titles or URLs from the results when relevant."
+                )},
+                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
+            ]
+        else:
+            messages = [
+                {"role": "system", "content": (
+                    "You are a helpful AI assistant. Use the provided context to answer questions accurately. "
+                    "If the context does not contain the answer, say so."
+                )},
+                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
+            ]
+
+        # 3. Stream
+        return self._llm.chat_stream(messages), sources

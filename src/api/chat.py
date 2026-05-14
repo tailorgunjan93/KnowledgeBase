@@ -144,189 +144,136 @@ async def delete_session(
     await db.commit()
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat")
 async def chat(
     request: Request,
     req: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
-    logger.info(f"Chat endpoint called: user={current_user.id}, message_len={len(req.message)}")
-    # Get or create session
-    session_repo = ChatSessionRepository(ChatSession, db)
-    if req.session_id:
-        session = await session_repo.get_by_user_and_id(req.session_id, current_user.id)
-        if not session:
-            raise HTTPException(404, "Session not found")
-    else:
-        session = await session_repo.create(
-            user_id=current_user.id,
-            kb_id=req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id,
-            title=req.message[:50] + "..." if len(req.message) > 50 else req.message
-        )
-        await db.flush()
-
-    # Save user message
-    msg_repo = MessageRepository(Message, db)
-    await msg_repo.create(
-        session_id=session.id,
-        role="user",
-        content=req.message
-    )
-    await db.flush()
-
-    # Perform RAG chat using the injected service
     try:
-        from fastapi.concurrency import run_in_threadpool
+        logger.info(f"Chat endpoint called: user={current_user.id}, message_len={len(req.message)}")
+        # Get or create session
+        session_repo = ChatSessionRepository(ChatSession, db)
+        if req.session_id:
+            session = await session_repo.get_by_user_and_id(req.session_id, current_user.id)
+            if not session:
+                raise HTTPException(404, "Session not found")
+        else:
+            session = await session_repo.create(
+                user_id=current_user.id,
+                kb_id=req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id,
+                title=req.message[:50] + "..." if len(req.message) > 50 else req.message
+            )
+            await db.flush()
 
-        context_override = None
-        sources_override = None
-        
-        kb_id = req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id
-        if kb_id:
-            from ..core.search.dynamic_index import IndexManager
-            from ..infrastructure.database.repositories import DocumentRepository
-            from ..domain.models import Document
-            
-            doc_repo = DocumentRepository(Document, db)
-            docs = await doc_repo.get_by_kb(kb_id)
-            doc_ids = [d.id for d in docs if d.indexed]
-            
-            if doc_ids:
-                index_mgr = IndexManager(kb_id)
-                search_results = await run_in_threadpool(index_mgr.search_kb, req.message, doc_ids, 5)
-                
-                if search_results:
-                    context_override = "\n\n".join([f"Source (Doc {s.get('doc_id')}):\n{s.get('text', '')}" for s in search_results])
-                    sources_override = search_results
-
-        _CONVERSATIONAL = {
-            "hello", "hi", "hey", "hiya", "howdy", "sup", "yo",
-            "thanks", "thank you", "ty", "thx", "cheers",
-            "ok", "okay", "sure", "alright", "great", "cool",
-            "yes", "no", "maybe", "nope", "yep", "yup",
-            "bye", "goodbye", "cya", "see you", "later",
-            "good morning", "good afternoon", "good evening", "good night",
-            "how are you", "how are you doing", "what's up", "whats up",
-        }
-        _msg_lower = req.message.strip().lower().rstrip("!?.,")
-        _skip_web = _msg_lower in _CONVERSATIONAL or (len(_msg_lower.split()) <= 2 and len(_msg_lower) < 20)
-
-        if req.enable_web_search and not _skip_web:
-            try:
-                def _run_web_search():
-                    import httpx as _httpx
-                    combined = []
-                    serper_key = get_settings().serper_api_key
-
-                    # 1. Serper (Google Search API) — primary, reliable
-                    if serper_key:
-                        try:
-                            resp = _httpx.post(
-                                "https://google.serper.dev/search",
-                                headers={"X-API-KEY": serper_key, "Content-Type": "application/json"},
-                                json={"q": req.message, "num": 5},
-                                timeout=10,
-                            )
-                            if resp.status_code == 200:
-                                for r in resp.json().get("organic", [])[:5]:
-                                    combined.append({"title": r.get("title", ""), "href": r.get("link", ""), "body": r.get("snippet", "")})
-                        except Exception as e:
-                            logger.warning(f"Serper search failed: {e}")
-
-                    # 2. Wikipedia — great for factual / encyclopedic queries
-                    try:
-                        import wikipedia
-                        wikipedia.set_lang("en")
-                        wiki_results = wikipedia.search(req.message, results=3)
-                        for title in wiki_results[:2]:
-                            try:
-                                summary = wikipedia.summary(title, sentences=3, auto_suggest=False)
-                                page = wikipedia.page(title, auto_suggest=False)
-                                combined.append({"title": title, "href": page.url, "body": summary})
-                            except Exception:
-                                continue
-                    except Exception as e:
-                        logger.warning(f"Wikipedia search failed: {e}")
-
-                    if combined:
-                        return combined
-
-                    # 3. DuckDuckGo fallback (flaky but free)
-                    from duckduckgo_search import DDGS
-                    for backend in ("html", "lite", "auto"):
-                        try:
-                            results = list(DDGS(timeout=12).text(req.message, max_results=5, backend=backend))
-                            if results:
-                                return results
-                        except Exception:
-                            continue
-                    try:
-                        news = list(DDGS(timeout=12).news(req.message, max_results=5))
-                        if news:
-                            return [{"title": r.get("title", ""), "href": r.get("url", ""), "body": r.get("body", "")} for r in news]
-                    except Exception:
-                        pass
-                    return []
-                web_results = await run_in_threadpool(_run_web_search)
-                logger.info(f"Web search returned {len(web_results)} results")
-                if web_results:
-                    web_context = "[WEB SEARCH RESULTS]\n" + "\n\n".join([
-                        f"Title: {r.get('title', '')}\nURL: {r.get('href', '')}\n{r.get('body', '')}"
-                        for r in web_results
-                    ])
-                    context_override = (context_override + "\n\n" + web_context) if context_override else web_context
-                    web_sources = [
-                        {"type": "web", "title": r.get("title", ""), "url": r.get("href", ""), "text": r.get("body", "")}
-                        for r in web_results
-                    ]
-                    sources_override = (sources_override or []) + web_sources
-                else:
-                    logger.warning("Web search returned 0 results from all backends")
-                    no_result_msg = "[WEB SEARCH] Search was attempted but returned no results. Answer based on your training knowledge."
-                    context_override = (context_override + "\n\n" + no_result_msg) if context_override else no_result_msg
-            except Exception as web_err:
-                logger.warning(f"Web search failed: {web_err}")
-
-        from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
-        from ..application.rag_service import SelfCorrectingRAG
-
-        try:
-            llm = await get_llm_for_user(current_user.id, db)  # type: ignore[arg-type]
-        except ValueError as llm_err:
-            raise HTTPException(422, str(llm_err))
-
-        per_req_rag = SelfCorrectingRAG(
-            llm=llm,
-            vector_store=request.app.state.vector_store,
-            confidence_threshold=get_settings().confidence_threshold,
-            max_retries=get_settings().max_retries,
-        )
-        try:
-            result = await run_in_threadpool(per_req_rag.answer, req.message, context_override, sources_override)
-        except ValueError as user_err:
-            # Friendly API errors raised by LLM adapters (rate limit, bad key, missing model, etc.)
-            await db.rollback()
-            raise HTTPException(422, str(user_err))
-
-        # Save assistant message
+        # Save user message
+        msg_repo = MessageRepository(Message, db)
         await msg_repo.create(
             session_id=session.id,
-            role="assistant",
-            content=result.get("response", ""),
-            intent=result.get("intent"),
-            confidence=str(result.get("confidence")),
-            sources=result.get("sources")
+            role="user",
+            content=req.message
         )
         await db.commit()
 
-        return ChatResponse(
-            response=result.get("response", ""),
-            session_id=session.id,
-            intent=result.get("intent"),
-            confidence=str(result.get("confidence")),
-            sources=result.get("sources")
-        )
+        from fastapi.responses import StreamingResponse
+        import json
+
+        async def stream_generator():
+            # ... (rest of the stream_generator logic)
+            context_override = None
+            sources_override = None
+            
+            kb_id = req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id
+            
+            from fastapi.concurrency import run_in_threadpool
+            from .deps import get_database
+
+            # 1. KB Retrieval
+            if kb_id:
+                from ..core.search.dynamic_index import IndexManager
+                from ..infrastructure.database.repositories import DocumentRepository
+                from ..domain.models import Document
+                
+                async with get_database().session() as gen_db:
+                    doc_repo = DocumentRepository(Document, gen_db)
+                    docs = await doc_repo.get_by_kb(kb_id)
+                    doc_ids = [d.id for d in docs if d.indexed]
+                    
+                    if doc_ids:
+                        index_mgr = IndexManager(kb_id)
+                        search_results = await run_in_threadpool(index_mgr.search_kb, req.message, doc_ids, 5)
+                        
+                        if search_results:
+                            context_override = "\n\n".join([f"Source (Doc {s.get('doc_id')}):\n{s.get('text', '')}" for s in search_results])
+                            sources_override = search_results
+
+            # 2. Web Search
+            # ... (web search logic)
+            _CONVERSATIONAL = {
+                "hello", "hi", "hey", "hiya", "howdy", "sup", "yo",
+                "thanks", "thank you", "ty", "thx", "cheers",
+                "ok", "okay", "sure", "alright", "great", "cool",
+                "yes", "no", "maybe", "nope", "yep", "yup",
+                "bye", "goodbye", "cya", "see you", "later",
+            }
+            _msg_lower = req.message.strip().lower().rstrip("!?.,")
+            _skip_web = _msg_lower in _CONVERSATIONAL or (len(_msg_lower.split()) <= 2 and len(_msg_lower) < 20)
+
+            if req.enable_web_search and not _skip_web:
+                try:
+                    def _run_web_search():
+                        import httpx as _httpx
+                        combined = []
+                        serper_key = get_settings().serper_api_key
+                        if serper_key:
+                            try:
+                                resp = _httpx.post("https://google.serper.dev/search", headers={"X-API-KEY": serper_key}, json={"q": req.message, "num": 5}, timeout=10)
+                                if resp.status_code == 200:
+                                    for r in resp.json().get("organic", []):
+                                        combined.append({"title": r.get("title", ""), "href": r.get("link", ""), "body": r.get("snippet", "")})
+                            except Exception: pass
+                        
+                        if not combined:
+                            from duckduckgo_search import DDGS
+                            try:
+                                results = list(DDGS(timeout=10).text(req.message, max_results=5))
+                                if results: combined = results
+                            except Exception: pass
+                        return combined
+
+                    web_results = await run_in_threadpool(_run_web_search)
+                    if web_results:
+                        web_context = "[WEB SEARCH RESULTS]\n" + "\n\n".join([f"Title: {r.get('title')}\nURL: {r.get('href')}\n{r.get('body')}" for r in web_results])
+                        context_override = (context_override + "\n\n" + web_context) if context_override else web_context
+                        web_sources = [{"type": "web", "title": r.get("title"), "url": r.get("href"), "text": r.get("body")} for r in web_results]
+                        sources_override = (sources_override or []) + web_sources
+                except Exception as e:
+                    logger.warning(f"Web search failed in stream: {e}")
+
+            # 3. LLM Stream
+            from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
+            from ..application.rag_service import SelfCorrectingRAG
+
+            async with get_database().session() as gen_db:
+                llm = await get_llm_for_user(current_user.id, gen_db)
+                per_req_rag = SelfCorrectingRAG(llm=llm, vector_store=request.app.state.vector_store)
+                
+                stream, sources = per_req_rag.answer_stream(req.message, context_override, sources_override)
+                
+                yield json.dumps({"type": "meta", "session_id": session.id, "sources": sources}) + "\n"
+                
+                full_content = ""
+                for chunk in stream:
+                    full_content += chunk
+                    yield json.dumps({"type": "content", "delta": chunk}) + "\n"
+                
+                from ..infrastructure.database.repositories import MessageRepository as GenMsgRepo
+                msg_repo_gen = GenMsgRepo(Message, gen_db)
+                await msg_repo_gen.create(session_id=session.id, role="assistant", content=full_content, confidence="0.9", sources=sources)
+                await gen_db.commit()
+
+        return StreamingResponse(stream_generator(), media_type="application/x-ndjson")
 
     except HTTPException:
         raise  # already formatted — don't re-wrap

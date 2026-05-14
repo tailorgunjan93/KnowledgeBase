@@ -5,7 +5,7 @@ class OllamaLLMAdapter:
         self._base_url = base_url.rstrip("/")
         self._model = model
 
-    def chat(self, messages: list[dict], max_tokens: int = 1000) -> str:
+    def chat(self, messages: list[dict], max_tokens: int = 4096) -> str:
         import httpx
         payload = {
             "model": self._model,
@@ -45,6 +45,28 @@ class OllamaLLMAdapter:
         if not content:
             raise ValueError("Ollama returned empty content")
         return content
+
+    def chat_stream(self, messages: list[dict], max_tokens: int = 4096):
+        import httpx
+        import json
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "stream": True,
+            "options": {"temperature": 0.3, "num_predict": max_tokens},
+        }
+        try:
+            with httpx.stream("POST", f"{self._base_url}/api/chat", json=payload, timeout=120.0) as resp:
+                if resp.status_code != 200:
+                    raise ValueError(f"Ollama error (status {resp.status_code})")
+                for line in resp.iter_lines():
+                    if line:
+                        chunk = json.loads(line)
+                        content = chunk.get("message", {}).get("content", "")
+                        if content:
+                            yield content
+        except Exception as err:
+            raise ValueError(f"Ollama streaming error: {err}") from err
 
     def embed(self, text: str) -> list[float]:
         raise NotImplementedError("Use SentenceTransformerEmbedder for embeddings.")

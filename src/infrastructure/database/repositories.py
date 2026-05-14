@@ -87,6 +87,20 @@ class KnowledgeBaseRepository(BaseRepository[KnowledgeBase]):
         result = await self.session.execute(select(func.count(self.model.id)).where(self.model.user_id == user_id))
         return result.scalar_one()
 
+    async def get_with_counts(self, user_id: int, skip: int = 0, limit: int = 20) -> Sequence[tuple[KnowledgeBase, int]]:
+        """Fetch KBs and their document counts in a single query."""
+        stmt = (
+            select(self.model, func.count(Document.id))
+            .outerjoin(Document, self.model.id == Document.kb_id)
+            .where(self.model.user_id == user_id)
+            .group_by(self.model.id)
+            .offset(skip)
+            .limit(limit)
+            .order_by(self.model.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return result.all()
+
 
 class DocumentRepository(BaseRepository[Document]):
     async def get_by_kb(self, kb_id: int, skip: int = 0, limit: int = 100) -> Sequence[Document]:

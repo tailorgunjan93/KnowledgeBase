@@ -42,14 +42,11 @@ async def list_knowledge_bases(
 ):
     skip, limit = get_pagination_params(skip, limit)
     repo = KnowledgeBaseRepository(KnowledgeBase, db)
-    kbs = await repo.get_by_user(current_user.id, skip=skip, limit=limit)
+    kbs_with_counts = await repo.get_with_counts(current_user.id, skip=skip, limit=limit)
     total = await repo.count_by_user(current_user.id)
 
     items = []
-    doc_repo = DocumentRepository(Document, db)
-    for kb in kbs:
-        docs = await doc_repo.get_by_kb(kb.id)
-        doc_count = len(docs)
+    for kb, doc_count in kbs_with_counts:
         items.append(KBResponse(
             id=kb.id,
             name=kb.name,

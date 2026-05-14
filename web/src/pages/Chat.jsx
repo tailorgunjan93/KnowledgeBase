@@ -64,20 +64,29 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
 
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
 
+    // Add a placeholder assistant message
+    setMessages(prev => [...prev, { role: 'assistant', content: '', loading: true }]);
+
     try {
       const data = await runQuery(userMsg, {
         session_id: currentSession,
         kb_ids: selectedKBs,
         enable_web_search: useWebSearch,
+      }, (update) => {
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          const lastMsg = newMsgs[newMsgs.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant') {
+            lastMsg.content = update.content;
+            lastMsg.loading = false;
+            if (update.isMeta) {
+              lastMsg.sources = update.sources;
+              lastMsg.session_id = update.session_id;
+            }
+          }
+          return newMsgs;
+        });
       });
-
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: data.response,
-        intent: data.intent,
-        confidence: data.confidence,
-        sources: data.sources,
-      }]);
 
       if (!currentSession && data.session_id) {
         setCurrentSession(data.session_id);
@@ -392,7 +401,7 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
           );
         })}
 
-        {loading && (
+        {loading && messages[messages.length - 1]?.content === '' && (
           <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 'var(--space-4)' }}>
             <TypingIndicator />
           </div>
