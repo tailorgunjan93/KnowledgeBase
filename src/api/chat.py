@@ -11,6 +11,7 @@ from ..infrastructure.database.repositories import ChatSessionRepository, Messag
 from ..domain.models import ChatSession, Message, User, UserSetting, KnowledgeBase
 
 from ..core.settings import get_settings
+from ..core.search.web_search import WebSearchEngine
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -149,159 +150,142 @@ async def chat(
     request: Request,
     req: ChatRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db_session)
 ):
-    try:
-        logger.info(f"Chat endpoint called: user={current_user.id}, message_len={len(req.message)}")
-        # Get or create session
-        session_repo = ChatSessionRepository(ChatSession, db)
-        if req.session_id:
-            session = await session_repo.get_by_user_and_id(req.session_id, current_user.id)
-            if not session:
-                raise HTTPException(404, "Session not found")
-        else:
-            session = await session_repo.create(
-                user_id=current_user.id,
-                kb_id=req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id,
-                title=req.message[:50] + "..." if len(req.message) > 50 else req.message
-            )
-            await db.flush()
+    from .deps import get_database
+    db_manager = get_database()
 
-        # Save user message
-        msg_repo = MessageRepository(Message, db)
-        await msg_repo.create(
-            session_id=session.id,
-            role="user",
-            content=req.message
-        )
-        await db.commit()
+    from fastapi.responses import StreamingResponse
+    import json
 
-        from fastapi.responses import StreamingResponse
-        import json
+    async def stream_generator():
+        # Open the session INSIDE the generator to ensure it lives as long as the stream
+        async with db_manager.session() as db:
+            try:
+                # 1. Session Setup
+                session_repo = ChatSessionRepository(ChatSession, db)
+                if req.session_id:
+                    session = await session_repo.get_by_user_and_id(req.session_id, current_user.id)
+                    if not session:
+                        yield json.dumps({"type": "error", "content": "Session not found"}) + "\n"
+                        return
+                else:
+                    from datetime import datetime as _dt
+                    _ts = _dt.now().strftime("%b %d %H:%M")
+                    _short_msg = req.message[:40] + "..." if len(req.message) > 40 else req.message
+                    session = await session_repo.create(
+                        user_id=current_user.id,
+                        kb_id=req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id,
+                        title=f"[{_ts}] {_short_msg}"
+                    )
+                    await db.flush()
 
-        async def stream_generator():
-            # ... (rest of the stream_generator logic)
-            context_override = None
-            sources_override = None
-            
-            kb_id = req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id
-            
-            from fastapi.concurrency import run_in_threadpool
-            from .deps import get_database
-
-            # 1. KB Retrieval
-            if kb_id:
-                from ..core.search.dynamic_index import IndexManager
-                from ..infrastructure.database.repositories import DocumentRepository
-                from ..domain.models import Document
+                session_id = session.id
                 
-                async with get_database().session() as gen_db:
-                    doc_repo = DocumentRepository(Document, gen_db)
+                # Save user message immediately
+                msg_repo = MessageRepository(Message, db)
+                await msg_repo.create(
+                    session_id=session_id,
+                    role="user",
+                    content=req.message
+                )
+                await db.commit()
+
+                # Yield session ID early so UI can update
+                yield json.dumps({"type": "session", "session_id": session_id}) + "\n"
+                
+                context_override = None
+                sources_override = None
+                
+                kb_id = req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id
+                
+                from fastapi.concurrency import run_in_threadpool
+
+                # 2. KB Retrieval
+                if kb_id:
+                    from ..infrastructure.database.repositories import DocumentRepository
+                    from ..domain.models import Document
+                    doc_repo = DocumentRepository(Document, db)
                     docs = await doc_repo.get_by_kb(kb_id)
-                    doc_ids = [d.id for d in docs if d.indexed]
-                    
-                    if doc_ids:
-                        index_mgr = IndexManager(kb_id)
-                        search_results = await run_in_threadpool(index_mgr.search_kb, req.message, doc_ids, 5)
+                    if docs:
+                        yield json.dumps({"type": "status", "content": "🔍 Searching knowledge base..."}) + "\n"
+                        from ..core.search.dynamic_index import IndexManager
+                        index_manager = IndexManager(kb_id)
+                        doc_ids = [d.id for d in docs if d.indexed]
                         
-                        if search_results:
-                            context_override = "\n\n".join([f"Source (Doc {s.get('doc_id')}):\n{s.get('text', '')}" for s in search_results])
-                            sources_override = search_results
+                        if doc_ids:
+                            # Create a map for titles since the index only has IDs
+                            doc_titles = {str(d.id): d.title for d in docs}
+                            
+                            results = await run_in_threadpool(index_manager.search_kb, req.message, doc_ids, 5)
+                            if results:
+                                context_override = "[KNOWLEDGE BASE CONTEXT]\n" + "\n\n".join([r.get('text', '') for r in results])
+                                sources_override = []
+                                for r in results:
+                                    did = str(r.get("doc_id"))
+                                    sources_override.append({
+                                        "type": "kb",
+                                        "title": doc_titles.get(did) or r.get("title") or "Untitled",
+                                        "text": r.get('text', ''),
+                                        "doc_id": did,
+                                        "id": did
+                                    })
 
-            # 2. Web Search
-            # ... (web search logic)
-            _CONVERSATIONAL = {
-                "hello", "hi", "hey", "hiya", "howdy", "sup", "yo",
-                "thanks", "thank you", "ty", "thx", "cheers",
-                "ok", "okay", "sure", "alright", "great", "cool",
-                "yes", "no", "maybe", "nope", "yep", "yup",
-                "bye", "goodbye", "cya", "see you", "later",
-            }
-            _msg_lower = req.message.strip().lower().rstrip("!?.,")
-            _skip_web = _msg_lower in _CONVERSATIONAL or (len(_msg_lower.split()) <= 2 and len(_msg_lower) < 20)
-
-            if req.enable_web_search and not _skip_web:
-                try:
-                    def _run_web_search():
-                        import httpx as _httpx
-                        combined = []
+                # 3. Web Search
+                if req.enable_web_search:
+                    yield json.dumps({"type": "status", "content": "🌐 Searching the web..."}) + "\n"
+                    try:
+                        settings_repo = UserSettingRepository(UserSetting, db)
+                        serper_key_setting = await settings_repo.get_by_user_and_key(current_user.id, "serper_api_key")
+                        final_serper_key = serper_key_setting.value if serper_key_setting else get_settings().serper_api_key
                         
-                        # Get serper key from user settings or fallback to global settings
-                        # We do this check outside run_in_threadpool if possible, but inside is also fine 
-                        # since we are already in the generator context.
-                        return combined # Placeholder to be updated below
-
-                    # Fetch user's serper key
-                    user_serper_key = None
-                    async with get_database().session() as gen_db:
-                        from ..infrastructure.database.repositories import UserSettingRepository
-                        from ..domain.models import UserSetting
-                        setting_repo = UserSettingRepository(UserSetting, gen_db)
-                        setting_obj = await setting_repo.get_by_user_and_key(current_user.id, "serper_api_key")
-                        if setting_obj and setting_obj.value:
-                            user_serper_key = setting_obj.value
-                    
-                    final_serper_key = user_serper_key or get_settings().serper_api_key
-
-                    def _run_web_search_with_key(key):
-                        import httpx as _httpx
-                        combined = []
-                        if key:
+                        def _run_web_search_with_key(key):
+                            combined = []
                             try:
-                                resp = _httpx.post("https://google.serper.dev/search", headers={"X-API-KEY": key}, json={"q": req.message, "num": 5}, timeout=10)
-                                if resp.status_code == 200:
-                                    for r in resp.json().get("organic", []):
-                                        combined.append({"title": r.get("title", ""), "href": r.get("link", ""), "body": r.get("snippet", "")})
-                            except Exception: pass
-                        
-                        if not combined:
-                            from duckduckgo_search import DDGS
-                            try:
-                                results = list(DDGS(timeout=10).text(req.message, max_results=5))
+                                engine = WebSearchEngine(serper_api_key=key)
+                                results = engine.search(req.message)
                                 if results: combined = results
                             except Exception: pass
-                        return combined
+                            return combined
 
-                    web_results = await run_in_threadpool(_run_web_search_with_key, final_serper_key)
-                    if web_results:
-                        web_context = "[WEB SEARCH RESULTS]\n" + "\n\n".join([f"Title: {r.get('title')}\nURL: {r.get('href')}\n{r.get('body')}" for r in web_results])
-                        context_override = (context_override + "\n\n" + web_context) if context_override else web_context
-                        web_sources = [{"type": "web", "title": r.get("title"), "url": r.get("href"), "text": r.get("body")} for r in web_results]
-                        sources_override = (sources_override or []) + web_sources
-                except Exception as e:
-                    logger.warning(f"Web search failed in stream: {e}")
+                        web_results = await run_in_threadpool(_run_web_search_with_key, final_serper_key)
+                        if web_results:
+                            web_context = "[WEB SEARCH RESULTS]\n" + "\n\n".join([f"Title: {r.get('title')}\nURL: {r.get('href')}\n{r.get('body')}" for r in web_results])
+                            context_override = (context_override + "\n\n" + web_context) if context_override else web_context
+                            web_sources = [{"type": "web", "title": r.get("title"), "url": r.get("href"), "text": r.get("body")} for r in web_results]
+                            sources_override = (sources_override or []) + web_sources
+                    except Exception as e:
+                        logger.warning(f"Web search failed in stream: {e}")
 
-            # 3. LLM Stream
-            from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
-            from ..application.rag_service import SelfCorrectingRAG
+                # 4. LLM Stream
+                yield json.dumps({"type": "status", "content": "Synthesizing answer..."}) + "\n"
+                from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
+                from ..application.rag_service import SelfCorrectingRAG
 
-            async with get_database().session() as gen_db:
-                llm = await get_llm_for_user(current_user.id, gen_db)
+                llm = await get_llm_for_user(current_user.id, db)
                 per_req_rag = SelfCorrectingRAG(llm=llm, vector_store=request.app.state.vector_store)
                 
                 stream, sources = per_req_rag.answer_stream(req.message, context_override, sources_override)
-                
-                yield json.dumps({"type": "meta", "session_id": session.id, "sources": sources}) + "\n"
                 
                 full_content = ""
                 for chunk in stream:
                     full_content += chunk
                     yield json.dumps({"type": "content", "delta": chunk}) + "\n"
                 
+                # 5. Final Save
                 from ..infrastructure.database.repositories import MessageRepository as GenMsgRepo
-                msg_repo_gen = GenMsgRepo(Message, gen_db)
-                await msg_repo_gen.create(session_id=session.id, role="assistant", content=full_content, confidence="0.9", sources=sources)
-                await gen_db.commit()
+                msg_repo_gen = GenMsgRepo(Message, db)
+                await msg_repo_gen.create(session_id=session_id, role="assistant", content=full_content, confidence="0.9", sources=sources)
+                await db.commit()
+                
+                yield json.dumps({"type": "meta", "session_id": session_id, "sources": sources}) + "\n"
 
-        return StreamingResponse(stream_generator(), media_type="application/x-ndjson")
+            except Exception as e:
+                await db.rollback()
+                import traceback
+                logger.error(f"Stream error: {e}\n{traceback.format_exc()}")
+                yield json.dumps({"type": "error", "content": str(e)}) + "\n"
 
-    except HTTPException:
-        raise  # already formatted — don't re-wrap
-    except Exception as e:
-        await db.rollback()
-        import traceback
-        logger.error(f"Chat endpoint error: {e}\n{traceback.format_exc()}")
-        raise HTTPException(500, "An unexpected server error occurred. Please try again.")
+    return StreamingResponse(stream_generator(), media_type="application/x-ndjson")
 
 
 # Static model lists per provider (used as fallback or when live fetch isn't available)

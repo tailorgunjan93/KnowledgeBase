@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from .reranker import CrossEncoderReranker
 
 logger = logging.getLogger(__name__)
 
@@ -270,34 +271,51 @@ class DynamicSearchEngine:
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
         self.embedding_cache: Dict[str, np.ndarray] = {}
+        self.reranker = CrossEncoderReranker()
 
     def search(
-        self, query: str, document_ids: List[int], top_k: int = 5
+        self, query: str, document_ids: List[int], top_k: int = 5, use_reranker: bool = True
     ) -> List[Dict[str, Any]]:
-        """Search across multiple document indices."""
+        """Search across multiple document indices with optional re-ranking."""
         # Get query embedding
         query_embedding = self._get_embedding(query)
 
+        # If re-ranking, retrieve more candidates initially
+        initial_k = top_k * 4 if use_reranker else top_k
         all_results = []
 
         # Search each document index in parallel
-        with ThreadPoolExecutor(max_workers=min(10, len(document_ids))) as executor:
+        with ThreadPoolExecutor(max_workers=min(10, max(1, len(document_ids)))) as executor:
             futures = {
                 executor.submit(
-                    self._search_document, doc_id, query_embedding, query, top_k
+                    self._search_document, doc_id, query_embedding, query, initial_k
                 ): doc_id
                 for doc_id in document_ids
             }
 
             for future in as_completed(futures):
                 try:
-                    results = future.result()
-                    all_results.extend(results)
+                    all_results.extend(future.result())
                 except Exception as e:
                     logger.error(f"Search failed for document: {e}")
 
-        # Apply RRF fusion
-        return self._rrf_fusion(all_results, top_k)
+        # Remove duplicates based on chunk_id and doc_id
+        unique_results = {}
+        for r in all_results:
+            key = (r["doc_id"], r["chunk_id"])
+            if key not in unique_results:
+                unique_results[key] = r
+        
+        final_candidates = list(unique_results.values())
+
+        # Apply re-ranking layer
+        if use_reranker and final_candidates:
+            logger.info(f"Re-ranking {len(final_candidates)} candidates for query: {query[:50]}...")
+            return self.reranker.rerank(query, final_candidates, top_k=top_k)
+
+        # If no re-ranking, just sort by score (if available) and take top_k
+        # If no score, we might need a fallback or return as is
+        return final_candidates[:top_k]
 
     def _search_document(
         self, doc_id: int, query_embedding: np.ndarray, query_text: str, k: int

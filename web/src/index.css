@@ -865,6 +865,12 @@ body {
   30%            { transform: translateY(-5px); opacity: 1; }
 }
 
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
 /* ── Confidence Badge ───────────────────── */
 .confidence-badge {
   display: inline-flex;

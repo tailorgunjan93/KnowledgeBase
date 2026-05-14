@@ -11,6 +11,13 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState('chat');
   const [sessions, setSessions] = useState([]);
   const [currentSession, setCurrentSession] = useState(null);
+  const [chatResetKey, setChatResetKey] = useState(0);
+
+  const handleNewChat = () => {
+    setCurrentSession(null);
+    setActiveTab('chat');
+    setChatResetKey(k => k + 1); // Force clean slate ONLY on explicit New Chat
+  };
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -53,12 +60,13 @@ function AppContent() {
         sessions={sessions}
         currentSession={currentSession}
         onLoadSession={setCurrentSession}
-        onNewChat={() => { setCurrentSession(null); setActiveTab('chat'); }}
+        onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
       />
       <main className="main-content">
         {activeTab === 'chat' && (
           <ChatPage
+            key={chatResetKey}
             currentSession={currentSession}
             setCurrentSession={setCurrentSession}
             onSessionCreated={fetchSessions}

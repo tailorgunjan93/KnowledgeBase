@@ -9,6 +9,7 @@ import TypingIndicator from '../components/TypingIndicator';
 export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }) {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
+  const [streamStatus, setStreamStatus] = useState(null); // Dedicated state for thinking steps
   const [selectedKBs, setSelectedKBs] = useState([]);
   const [useWebSearch, setUseWebSearch] = useState(false);
   const [kbDropdownOpen, setKbDropdownOpen] = useState(false);
@@ -17,6 +18,7 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
   const [previewUrl, setPreviewUrl] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewType, setPreviewType] = useState('');
+  const skipNextLoad = useRef(false); // Prevents API reload when creating a new session
 
   const handleSourceClick = (s) => {
     if (s.type === 'web') {
@@ -89,9 +91,14 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
     return () => document.removeEventListener('click', close);
   }, [kbDropdownOpen]);
 
-  // Load messages when session changes
+  // Load messages when session changes (but skip when WE just created a new session)
   useEffect(() => {
     setPreviewSource(null);
+    setStreamStatus(null);
+    if (skipNextLoad.current) {
+      skipNextLoad.current = false;
+      return;
+    }
     if (currentSession) {
       chatAPI.getMessages(currentSession)
         .then(res => setMessages(res.data || []))
@@ -108,9 +115,16 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
     if (inputRef.current) inputRef.current.style.height = 'auto';
 
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
-
-    // Add a placeholder assistant message
     setMessages(prev => [...prev, { role: 'assistant', content: '', loading: true }]);
+
+    // Show status immediately (don't wait for backend — network timing is unreliable)
+    if (selectedKBs.length > 0) {
+      setStreamStatus('🔍 Searching knowledge base...');
+    } else if (useWebSearch) {
+      setStreamStatus('🌐 Searching the web...');
+    } else {
+      setStreamStatus('🧠 Thinking...');
+    }
 
     try {
       const data = await runQuery(userMsg, {
@@ -118,26 +132,48 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
         kb_ids: selectedKBs,
         enable_web_search: useWebSearch,
       }, (update) => {
-        setMessages(prev => {
-          const newMsgs = [...prev];
-          const lastMsg = newMsgs[newMsgs.length - 1];
-          if (lastMsg && lastMsg.role === 'assistant') {
-            lastMsg.content = update.content;
-            lastMsg.loading = false;
-            if (update.isMeta) {
-              lastMsg.sources = update.sources;
-              lastMsg.session_id = update.session_id;
-            }
+        // Update status from backend for richer step info
+        if (update.status !== undefined) {
+          setStreamStatus(update.status || null);
+        }
+        // Update session ID as soon as it's available (fixes "attached to older chat" UX)
+        if (update.session_id && !currentSession) {
+          skipNextLoad.current = true;
+          setCurrentSession(update.session_id);
+          onSessionCreated?.();
+        }
+
+        if (update.content !== undefined || update.isMeta) {
+          // Clear thinking indicator once real content starts
+          if (update.content && update.content.trim().length > 0) {
+            setStreamStatus(null);
           }
-          return newMsgs;
-        });
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            const lastMsg = newMsgs[newMsgs.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant') {
+              if (update.content !== undefined) {
+                lastMsg.content = update.content;
+                lastMsg.loading = false;
+              }
+              if (update.isMeta) {
+                lastMsg.sources = update.sources;
+              }
+            }
+            return newMsgs;
+          });
+        }
       });
 
-      if (!currentSession && data.session_id) {
+      setStreamStatus(null); 
+      if (!currentSession && data?.session_id) {
+        skipNextLoad.current = true;
         setCurrentSession(data.session_id);
         onSessionCreated?.();
       }
-    } catch { /* silent */ }
+    } catch { 
+      setStreamStatus(null);
+    }
   };
 
   const handleKey = (e) => {
@@ -414,6 +450,19 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
             return (
               <div key={idx} className="msg-wrapper" style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 'var(--space-4)' }}>
                 <div className={`msg-bubble ${isUser ? 'user-bubble' : 'assistant-bubble'}`}>
+                  {msg.status && (
+                    <div style={{ 
+                      display: 'flex', alignItems: 'center', gap: 8, 
+                      marginBottom: 12, padding: '8px 12px', 
+                      background: 'rgba(var(--color-primary-rgb), 0.05)', 
+                      borderRadius: 'var(--radius-sm)', border: '1px solid rgba(var(--color-primary-rgb), 0.1)',
+                      fontSize: 'var(--text-xs)', color: 'var(--color-primary)', fontWeight: 500,
+                      animation: 'pulse 2s infinite'
+                    }}>
+                      <div className="spinner" style={{ width: 12, height: 12, borderWidth: 1.5 }} />
+                      {msg.status}
+                    </div>
+                  )}
                   <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
 
                   {!isUser && (msg.confidence || msg.sources?.length > 0) && (
@@ -454,11 +503,31 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
             );
           })}
 
-          {loading && messages[messages.length - 1]?.content === '' && (
+          {/* Typing indicator — shows when loading with no content yet and no status */}
+          {loading && messages[messages.length - 1]?.content === '' && !streamStatus && (
             <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 'var(--space-4)' }}>
               <TypingIndicator />
             </div>
           )}
+
+          {/* Thinking Bar — shows pipeline steps independently from message state */}
+          {streamStatus && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              margin: '4px 0 16px 0', padding: '10px 16px',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderLeft: '3px solid var(--color-primary)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)',
+              fontWeight: 500, animation: 'pulse 1.6s ease-in-out infinite',
+              maxWidth: '80%',
+            }}>
+              <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2, flexShrink: 0 }} />
+              <span>{streamStatus}</span>
+            </div>
+          )}
+
           <div ref={endRef} />
         </div>
 

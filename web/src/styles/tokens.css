@@ -4,6 +4,7 @@
 :root {
   /* Brand */
   --color-primary:       #7C3AED;
+  --color-primary-rgb:   124, 58, 237;
   --color-primary-dark:  #5B21B6;
   --color-primary-light: #EDE9FE;
   --color-primary-glow:  rgba(124, 58, 237, 0.15);
@@ -90,6 +91,7 @@
 [data-theme="dark"] {
   /* Brand */
   --color-primary:       #8B5CF6;
+  --color-primary-rgb:   139, 92, 246;
   --color-primary-dark:  #7C3AED;
   --color-primary-light: #2D1F5E;
   --color-primary-glow:  rgba(139, 92, 246, 0.2);

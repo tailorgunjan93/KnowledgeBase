@@ -16,13 +16,16 @@ class Database:
             database_url = database_url.replace("sqlite:///", "sqlite+aiosqlite:///")
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
             connect_args["check_same_thread"] = False
-            connect_args["timeout"] = 15
+            connect_args["timeout"] = 30  # Increased timeout
 
-        from sqlalchemy.pool import NullPool
+        from sqlalchemy.pool import AsyncAdaptedQueuePool, NullPool
+        # Use AsyncAdaptedQueuePool for asyncio engine compatibility
+        poolclass = AsyncAdaptedQueuePool if "sqlite" in database_url else NullPool
+        
         self.engine = create_async_engine(
             database_url,
             connect_args=connect_args,
-            poolclass=NullPool,
+            poolclass=poolclass,
         )
 
         if database_url.startswith("sqlite"):
@@ -33,6 +36,7 @@ class Database:
                 try:
                     cursor.execute("PRAGMA journal_mode=WAL")
                     cursor.execute("PRAGMA synchronous=NORMAL")
+                    cursor.execute("PRAGMA busy_timeout=30000")
                 except Exception:
                     pass
                 cursor.close()

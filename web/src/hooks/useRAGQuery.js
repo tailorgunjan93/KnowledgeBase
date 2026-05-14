@@ -49,12 +49,22 @@ export function useRAGQuery() {
           if (!line.trim()) continue;
           try {
             const data = JSON.parse(line);
-            if (data.type === 'meta') {
+            if (data.type === 'status') {
+              onUpdate?.({ status: data.content });
+            } else if (data.type === 'session') {
+              onUpdate?.({ session_id: data.session_id });
+            } else if (data.type === 'meta') {
               metaData = data;
               onUpdate?.({ ...data, content: fullText, isMeta: true });
             } else if (data.type === 'content') {
               fullText += data.delta;
-              onUpdate?.({ content: fullText, delta: data.delta });
+              // Only clear status if we actually have non-whitespace content to show
+              const hasContent = fullText.trim().length > 0;
+              onUpdate?.({ 
+                content: fullText, 
+                delta: data.delta, 
+                status: hasContent ? null : undefined 
+              });
             }
           } catch (e) {
             console.error('Error parsing stream chunk', e, line);
