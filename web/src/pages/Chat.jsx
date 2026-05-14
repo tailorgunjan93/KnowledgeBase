@@ -12,6 +12,7 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
   const [streamStatus, setStreamStatus] = useState(null); // Dedicated state for thinking steps
   const [selectedKBs, setSelectedKBs] = useState([]);
   const [useWebSearch, setUseWebSearch] = useState(false);
+  const [useAdvancedRAG, setUseAdvancedRAG] = useState(false);
   const [kbDropdownOpen, setKbDropdownOpen] = useState(false);
   const [expandedSources, setExpandedSources] = useState({});
   const [previewSource, setPreviewSource] = useState(null);
@@ -131,6 +132,7 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
         session_id: currentSession,
         kb_ids: selectedKBs,
         enable_web_search: useWebSearch,
+        advanced_rag: useAdvancedRAG,
       }, (update) => {
         // Update status from backend for richer step info
         if (update.status !== undefined) {
@@ -324,6 +326,17 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
             </svg>
             <div className="toggle-pill"/>
             Web Search
+          </div>
+
+          {/* Advanced RAG toggle */}
+          <div className={`web-toggle ${useAdvancedRAG ? 'on' : ''}`} onClick={() => setUseAdvancedRAG(p => !p)} style={{ marginLeft: 8 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/>
+              <line x1="16" y1="8" x2="2" y2="22"/>
+              <line x1="17.5" y1="15" x2="9" y2="15"/>
+            </svg>
+            <div className="toggle-pill"/>
+            Advanced RAG
           </div>
         </div>
 

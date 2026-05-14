@@ -43,6 +43,7 @@ class ChatRequest(BaseModel):
     kb_id: Optional[int] = None # Legacy support
     kb_ids: Optional[List[int]] = None
     enable_web_search: bool = False
+    advanced_rag: bool = False
 
 
 class ChatResponse(BaseModel):
@@ -213,10 +214,37 @@ async def chat(
                         doc_ids = [d.id for d in docs if d.indexed]
                         
                         if doc_ids:
+                            # Advanced RAG logic
+                            hyde_query = None
+                            expanded_queries = None
+                            
+                            if req.advanced_rag:
+                                from ..core.search.query_processor import QueryProcessor
+                                from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
+                                
+                                yield json.dumps({"type": "status", "content": "🧠 Optimizing search query..."}) + "\n"
+                                llm_for_proc = await get_llm_for_user(current_user.id, db)
+                                processor = QueryProcessor(llm_for_proc)
+                                
+                                # Parallelize HyDE and Expansion
+                                import asyncio
+                                hyde_task = asyncio.create_task(processor.generate_hypothetical_document(req.message))
+                                expansion_task = asyncio.create_task(processor.expand_query(req.message))
+                                
+                                hyde_query, expanded_queries = await asyncio.gather(hyde_task, expansion_task)
+                                yield json.dumps({"type": "status", "content": "🎯 Retrieving precision sources..."}) + "\n"
+
                             # Create a map for titles since the index only has IDs
                             doc_titles = {str(d.id): d.title for d in docs}
                             
-                            results = await run_in_threadpool(index_manager.search_kb, req.message, doc_ids, 5)
+                            results = await run_in_threadpool(
+                                index_manager.search_kb, 
+                                req.message, 
+                                doc_ids, 
+                                5,
+                                hyde_query=hyde_query,
+                                expanded_queries=expanded_queries
+                            )
                             if results:
                                 context_override = "[KNOWLEDGE BASE CONTEXT]\n" + "\n\n".join([r.get('text', '') for r in results])
                                 sources_override = []

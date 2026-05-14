@@ -274,14 +274,41 @@ class DynamicSearchEngine:
         self.reranker = CrossEncoderReranker()
 
     def search(
-        self, query: str, document_ids: List[int], top_k: int = 5, use_reranker: bool = True
+        self, 
+        query: str, 
+        document_ids: List[int], 
+        top_k: int = 5, 
+        use_reranker: bool = True,
+        hyde_query: Optional[str] = None,
+        expanded_queries: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
-        """Search across multiple document indices with optional re-ranking."""
-        # Get query embedding
-        query_embedding = self._get_embedding(query)
+        """Search across multiple document indices with optional re-ranking, HyDE, and Query Expansion."""
+        
+        # 1. Handle Query Expansion (Multi-query search)
+        if expanded_queries and len(expanded_queries) > 0:
+            logger.info(f"Performing expanded search with {len(expanded_queries)} queries...")
+            all_expanded_results = []
+            for q in expanded_queries:
+                # Recursively call search for each variation but WITHOUT expansion to avoid infinite loop
+                res = self.search(q, document_ids, top_k=top_k*2, use_reranker=False, hyde_query=hyde_query)
+                all_expanded_results.extend(res)
+            
+            # Fuse results using RRF
+            fused_results = self._rrf_fusion(all_expanded_results)
+            
+            # Apply re-ranking on fused results if requested
+            if use_reranker and fused_results:
+                return self.reranker.rerank(query, fused_results, top_k=top_k)
+            return fused_results[:top_k]
+
+        # 2. Standard Search (possibly with HyDE)
+        # If HyDE is used, we use the hypothetical answer for vector search (FAISS)
+        # but keep the original query for keyword search (BM25)
+        vector_query = hyde_query if hyde_query else query
+        query_embedding = self._get_embedding(vector_query)
 
         # If re-ranking, retrieve more candidates initially
-        initial_k = top_k * 4 if use_reranker else top_k
+        initial_k = top_k * 10 if use_reranker else top_k
         all_results = []
 
         # Search each document index in parallel
@@ -299,23 +326,15 @@ class DynamicSearchEngine:
                 except Exception as e:
                     logger.error(f"Search failed for document: {e}")
 
-        # Remove duplicates based on chunk_id and doc_id
-        unique_results = {}
-        for r in all_results:
-            key = (r["doc_id"], r["chunk_id"])
-            if key not in unique_results:
-                unique_results[key] = r
+        # Remove duplicates and fuse scores (FAISS + BM25)
+        fused_results = self._rrf_fusion(all_results)
         
-        final_candidates = list(unique_results.values())
-
         # Apply re-ranking layer
-        if use_reranker and final_candidates:
-            logger.info(f"Re-ranking {len(final_candidates)} candidates for query: {query[:50]}...")
-            return self.reranker.rerank(query, final_candidates, top_k=top_k)
+        if use_reranker and fused_results:
+            logger.info(f"Re-ranking {len(fused_results)} candidates for query: {query[:50]}...")
+            return self.reranker.rerank(query, fused_results, top_k=top_k)
 
-        # If no re-ranking, just sort by score (if available) and take top_k
-        # If no score, we might need a fallback or return as is
-        return final_candidates[:top_k]
+        return fused_results[:top_k]
 
     def _search_document(
         self, doc_id: int, query_embedding: np.ndarray, query_text: str, k: int
@@ -402,11 +421,22 @@ class IndexManager:
         return success
 
     def search_kb(
-        self, query: str, document_ids: List[int], top_k: int = 5
+        self, 
+        query: str, 
+        document_ids: List[int], 
+        top_k: int = 5,
+        hyde_query: Optional[str] = None,
+        expanded_queries: Optional[List[str]] = None
     ) -> List[Dict]:
         """Search across all documents in KB."""
         engine = DynamicSearchEngine(str(self.base_path.parent))
-        return engine.search(query, document_ids, top_k)
+        return engine.search(
+            query, 
+            document_ids, 
+            top_k=top_k, 
+            hyde_query=hyde_query, 
+            expanded_queries=expanded_queries
+        )
 
     def delete_document_index(self, document_id: int):
         """Delete index for a document."""

@@ -22,7 +22,8 @@ export function useRAGQuery() {
           message: queryText,
           session_id: options.session_id,
           kb_ids: options.kb_ids,
-          enable_web_search: options.enable_web_search
+          enable_web_search: options.enable_web_search,
+          advanced_rag: options.advanced_rag
         })
       });
 
