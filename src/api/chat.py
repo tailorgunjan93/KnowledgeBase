@@ -225,10 +225,30 @@ async def chat(
                     def _run_web_search():
                         import httpx as _httpx
                         combined = []
-                        serper_key = get_settings().serper_api_key
-                        if serper_key:
+                        
+                        # Get serper key from user settings or fallback to global settings
+                        # We do this check outside run_in_threadpool if possible, but inside is also fine 
+                        # since we are already in the generator context.
+                        return combined # Placeholder to be updated below
+
+                    # Fetch user's serper key
+                    user_serper_key = None
+                    async with get_database().session() as gen_db:
+                        from ..infrastructure.database.repositories import UserSettingRepository
+                        from ..domain.models import UserSetting
+                        setting_repo = UserSettingRepository(UserSetting, gen_db)
+                        setting_obj = await setting_repo.get_by_user_and_key(current_user.id, "serper_api_key")
+                        if setting_obj and setting_obj.value:
+                            user_serper_key = setting_obj.value
+                    
+                    final_serper_key = user_serper_key or get_settings().serper_api_key
+
+                    def _run_web_search_with_key(key):
+                        import httpx as _httpx
+                        combined = []
+                        if key:
                             try:
-                                resp = _httpx.post("https://google.serper.dev/search", headers={"X-API-KEY": serper_key}, json={"q": req.message, "num": 5}, timeout=10)
+                                resp = _httpx.post("https://google.serper.dev/search", headers={"X-API-KEY": key}, json={"q": req.message, "num": 5}, timeout=10)
                                 if resp.status_code == 200:
                                     for r in resp.json().get("organic", []):
                                         combined.append({"title": r.get("title", ""), "href": r.get("link", ""), "body": r.get("snippet", "")})
@@ -242,7 +262,7 @@ async def chat(
                             except Exception: pass
                         return combined
 
-                    web_results = await run_in_threadpool(_run_web_search)
+                    web_results = await run_in_threadpool(_run_web_search_with_key, final_serper_key)
                     if web_results:
                         web_context = "[WEB SEARCH RESULTS]\n" + "\n\n".join([f"Title: {r.get('title')}\nURL: {r.get('href')}\n{r.get('body')}" for r in web_results])
                         context_override = (context_override + "\n\n" + web_context) if context_override else web_context

@@ -63,6 +63,7 @@ const DEFAULT_CFG = {
   nvidia_api_key: '', nvidia_model: '',
   aws_access_key_id: '', aws_secret_access_key: '', aws_region: 'us-east-1', aws_model: '',
   ollama_model: '',
+  serper_api_key: '',
 };
 
 export function SettingsPage({ user }) {
@@ -144,6 +145,10 @@ export function SettingsPage({ user }) {
     };
     const updates = { active_provider: activeTab };
     for (const k of (keysByProvider[activeTab] || [])) updates[k] = cfg[k] || '';
+    
+    // Always include serper_api_key in updates
+    updates['serper_api_key'] = cfg.serper_api_key || '';
+
     try {
       await Promise.all(Object.entries(updates).map(([k, v]) => settingsAPI.update(k, v)));
       setSaved(true);
@@ -428,6 +433,30 @@ export function SettingsPage({ user }) {
                 ✓ Currently active
               </span>
             )}
+          </div>
+        </div>
+
+        {/* Web Search */}
+        <div className="settings-card">
+          <div className="settings-card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            Web Search Configuration
+          </div>
+          <p className="settings-field-hint" style={{ marginBottom: 'var(--space-4)' }}>
+            Power real-time web search results in your chats. Get a free key at{' '}
+            <a href="https://serper.dev" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)' }}>serper.dev</a>.
+            If left blank, the system default will be used.
+          </p>
+          <div className="settings-field">
+            <label>Serper API Key</label>
+            <KeyInput field="serper_api_key" placeholder="Enter your Serper key..." />
+          </div>
+          <div className="settings-save-row">
+            <button className="btn-settings-save" onClick={saveProvider} disabled={saving || saved} style={{ padding: '8px 20px', width: 'auto' }}>
+              {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Search Settings'}
+            </button>
           </div>
         </div>
 

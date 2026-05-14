@@ -57,7 +57,7 @@ export function Sidebar({ activeTab, setActiveTab, sessions, currentSession, onL
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar-collapsed' : ''}`}>
       {/* Header */}
-      <div className="sidebar-head">
+      <div className="sidebar-head" style={collapsed ? { padding: 'var(--space-3)', justifyContent: 'center', flexDirection: 'column', gap: 'var(--space-4)' } : {}}>
         {!collapsed && (
           <div className="brand">
             <div className="brand-mark">
@@ -75,7 +75,7 @@ export function Sidebar({ activeTab, setActiveTab, sessions, currentSession, onL
           </div>
         )}
         {collapsed && (
-          <div className="brand-mark" style={{ margin: '0 auto' }}>
+          <div className="brand-mark">
             <svg viewBox="0 0 26 26" fill="none">
               <path d="M6 4v18" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
               <path d="M6 13L16 5" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
@@ -84,11 +84,12 @@ export function Sidebar({ activeTab, setActiveTab, sessions, currentSession, onL
             </svg>
           </div>
         )}
-        <button className="sidebar-collapse-btn" onClick={() => setCollapsed(p => !p)} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <button className="sidebar-collapse-btn" onClick={() => setCollapsed(p => !p)} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          style={collapsed ? { margin: 0 } : {}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             {collapsed
-              ? <><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></>
-              : <><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></>
+              ? <polyline points="9 18 15 12 9 6"/>
+              : <polyline points="15 18 9 12 15 6"/>
             }
           </svg>
         </button>
