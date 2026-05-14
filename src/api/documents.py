@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional, List
@@ -156,13 +157,15 @@ async def _process_document_task(doc_id: int, kb_id: int, file_path_str: str, fi
     try:
         from fastapi.concurrency import run_in_threadpool
         print(f"BG_TASK: Starting extraction for doc {doc_id} ({filename})...")
-        content = await run_in_threadpool(_extract_file_content_sync, file_path, filename)
+        extraction_result = await run_in_threadpool(_extract_file_content_sync, file_path, filename)
+        content = extraction_result["text"]
+        pages = extraction_result["pages"]
         
         if content.startswith("Error"):
             print(f"BG_TASK ERROR: Extraction failed for doc {doc_id}: {content}")
             raise Exception(content)
         
-        print(f"BG_TASK: Extraction complete for doc {doc_id}. Length: {len(content)} chars.")
+        print(f"BG_TASK: Extraction complete for doc {doc_id}. Length: {len(content)} chars, {len(pages)} pages.")
 
         bg_db = Database(db_url)
         async with bg_db.session() as session:
@@ -173,7 +176,7 @@ async def _process_document_task(doc_id: int, kb_id: int, file_path_str: str, fi
 
         print(f"BG_TASK: Starting indexing for doc {doc_id}...")
         index_mgr = IndexManager(kb_id)
-        success = await run_in_threadpool(index_mgr.create_document_index, doc_id, content)
+        success = await run_in_threadpool(index_mgr.create_document_index, doc_id, content, pages)
         print(f"BG_TASK: Indexing {'successful' if success else 'failed'} for doc {doc_id}.")
 
         async with bg_db.session() as session:
@@ -199,48 +202,54 @@ async def _process_document_task(doc_id: int, kb_id: int, file_path_str: str, fi
             pass
 
 
-def _extract_file_content_sync(file_path: Path, filename: str) -> str:
+def _extract_file_content_sync(file_path: Path, filename: str) -> dict:
     ext = filename.split(".")[-1].lower() if "." in filename else ""
+    pages = []
+    full_text = ""
 
     try:
         if ext == "txt":
-            return file_path.read_text(encoding="utf-8")
+            full_text = file_path.read_text(encoding="utf-8")
+            pages = [{"page": 1, "text": full_text}]
         elif ext == "pdf":
             try:
                 import PyPDF2
-                text = []
                 with open(file_path, "rb") as f:
                     reader = PyPDF2.PdfReader(f)
-                    for page in reader.pages:
-                        text.append(page.extract_text() or "")
-                return "\n".join(text)
-            except ImportError:
+                    for i, page in enumerate(reader.pages):
+                        p_text = page.extract_text() or ""
+                        pages.append({"page": i + 1, "text": p_text})
+                full_text = "\n".join(p["text"] for p in pages)
+            except Exception:
                 import pdfplumber
                 with pdfplumber.open(file_path) as pdf:
-                    pages = pdf.pages
-                    if len(pages) > 5:
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                            futures = [executor.submit(lambda p: p.extract_text() or "", page) for page in pages]
-                            results = [f.result() for f in futures]
-                            return "\n".join(results)
-                    else:
-                        return "\n".join(page.extract_text() or "" for page in pages)
+                    for i, page in enumerate(pdf.pages):
+                        p_text = page.extract_text() or ""
+                        pages.append({"page": i + 1, "text": p_text})
+                full_text = "\n".join(p["text"] for p in pages)
         elif ext in ["doc", "docx"]:
             from docx import Document as DocxDocument
             docx = DocxDocument(file_path)
-            return "\n".join(para.text for para in docx.paragraphs)
+            full_text = "\n".join(para.text for para in docx.paragraphs)
+            pages = [{"page": 1, "text": full_text}]
         elif ext in ["xlsx", "xls"]:
             import pandas as pd
             df = pd.read_excel(file_path)
-            return df.to_string()
+            full_text = df.to_string()
+            pages = [{"page": 1, "text": full_text}]
         else:
-            return file_path.read_text(encoding="utf-8", errors="ignore")
+            full_text = file_path.read_text(encoding="utf-8", errors="ignore")
+            pages = [{"page": 1, "text": full_text}]
+        
+        return {"text": full_text, "pages": pages}
     except Exception as e:
-        return f"Error extracting content: {str(e)}"
+        err = f"Error extracting content: {str(e)}"
+        return {"text": err, "pages": [{"page": 1, "text": err}]}
 
 
 async def extract_file_content(file_path: Path, filename: str) -> str:
-    return _extract_file_content_sync(file_path, filename)
+    res = _extract_file_content_sync(file_path, filename)
+    return res["text"]
 
 
 @router.delete("/documents/{doc_id}")
@@ -268,6 +277,31 @@ async def delete_document(
     await db.commit()
 
     return {"status": "deleted", "id": doc_id}
+ 
+@router.get("/documents/{doc_id}/file")
+async def get_document_file(
+    doc_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session)
+):
+    repo = DocumentRepository(Document, db)
+    doc = await repo.get_by_id(doc_id)
+ 
+    if not doc or doc.user_id != current_user.id:
+        raise NotFoundError("Document not found")
+ 
+    if not doc.file_path:
+        raise NotFoundError("File not found on disk")
+ 
+    file_path = Path(doc.file_path)
+    if not file_path.exists():
+        raise NotFoundError("File not found on disk")
+ 
+    return FileResponse(
+        path=file_path,
+        filename=doc.title or f"document_{doc_id}",
+        media_type="application/pdf" if doc.file_type == "pdf" else None
+    )
 
 
 @router.post("/summarize", response_model=SummarizeResponse)

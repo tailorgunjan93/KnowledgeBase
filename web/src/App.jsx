@@ -15,17 +15,24 @@ function AppContent() {
   const fetchSessions = useCallback(async () => {
     try {
       const res = await chatAPI.getSessions();
-      const sessionsData = res.data || [];
-      setSessions(sessionsData);
-      
-      // Auto-load latest session if none is active
-      if (!currentSession && sessionsData.length > 0) {
-        setCurrentSession(sessionsData[0].id);
-      }
+      setSessions(res.data || []);
     } catch { /* silent */ }
-  }, [currentSession]);
+  }, []);
 
-  useEffect(() => { fetchSessions(); }, [fetchSessions]);
+  // Initial load
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const res = await chatAPI.getSessions();
+        const sessionsData = res.data || [];
+        setSessions(sessionsData);
+        if (sessionsData.length > 0) {
+          setCurrentSession(sessionsData[0].id);
+        }
+      } catch { /* silent */ }
+    };
+    init();
+  }, []);
 
   const handleDeleteSession = useCallback(async (id) => {
     try {
@@ -46,7 +53,7 @@ function AppContent() {
         sessions={sessions}
         currentSession={currentSession}
         onLoadSession={setCurrentSession}
-        onNewChat={() => setCurrentSession(null)}
+        onNewChat={() => { setCurrentSession(null); setActiveTab('chat'); }}
         onDeleteSession={handleDeleteSession}
       />
       <main className="main-content">

@@ -303,6 +303,22 @@ body {
 .thread-item:hover .thread-del-btn { opacity: 1; }
 .thread-del-btn:hover { color: var(--color-error); background: var(--color-error-bg); }
 
+/* ── Source Preview Panel ───────────────── */
+.source-preview-panel {
+  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.05);
+  z-index: 10;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.source-preview-panel iframe {
+  background: white;
+}
+
 /* ── Topbar action buttons ──────────────── */
 .topbar-btn {
   display: inline-flex;

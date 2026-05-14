@@ -13,6 +13,50 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
   const [useWebSearch, setUseWebSearch] = useState(false);
   const [kbDropdownOpen, setKbDropdownOpen] = useState(false);
   const [expandedSources, setExpandedSources] = useState({});
+  const [previewSource, setPreviewSource] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewType, setPreviewType] = useState('');
+
+  const handleSourceClick = (s) => {
+    if (s.type === 'web') {
+      window.open(s.url, '_blank');
+    } else {
+      setPreviewSource(s);
+    }
+  };
+
+  useEffect(() => {
+    if (!previewSource?.doc_id) {
+      setPreviewUrl(null);
+      setPreviewType('');
+      return;
+    }
+
+    let url = null;
+    const fetchFile = async () => {
+      setPreviewLoading(true);
+      try {
+        const res = await httpClient.get(`/api/documents/${previewSource.doc_id}/file`, {
+          responseType: 'blob'
+        });
+        const contentType = res.headers['content-type'] || 'application/octet-stream';
+        setPreviewType(contentType);
+        
+        // Ensure the blob has the correct type
+        const blob = new Blob([res.data], { type: contentType });
+        url = URL.createObjectURL(blob);
+        setPreviewUrl(url);
+      } catch (err) {
+        console.error('Failed to fetch preview file:', err);
+      } finally {
+        setPreviewLoading(false);
+      }
+    };
+
+    fetchFile();
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [previewSource]);
 
   // Summarizer panel state
   const [showSummarizer, setShowSummarizer] = useState(false);
@@ -47,6 +91,7 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
 
   // Load messages when session changes
   useEffect(() => {
+    setPreviewSource(null);
     if (currentSession) {
       chatAPI.getMessages(currentSession)
         .then(res => setMessages(res.data || []))
@@ -163,280 +208,354 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
   };
 
   return (
-    <div className="chat-main">
-      {/* Topbar */}
-      <div className="chat-topbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flex: 1 }}>
-          {/* KB selector */}
-          <div className="kb-selector-container" onClick={e => e.stopPropagation()}>
-            <div className={`kb-selector ${kbDropdownOpen ? 'active' : ''}`} onClick={() => setKbDropdownOpen(p => !p)}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-              </svg>
-              <span>{kbLabel}</span>
-              <svg className="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
+    <div className="chat-layout-container" style={{ display: 'flex', flex: 1, width: '100%', overflow: 'hidden' }}>
+      <div className="chat-main" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div className="chat-topbar">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flex: 1 }}>
+            {/* KB selector */}
+            <div className="kb-selector-container" onClick={e => e.stopPropagation()}>
+              <div className={`kb-selector ${kbDropdownOpen ? 'active' : ''}`} onClick={() => setKbDropdownOpen(p => !p)}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                </svg>
+                <span>{kbLabel}</span>
+                <svg className="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </div>
+
+              <div className={`kb-dropdown ${kbDropdownOpen ? 'show' : ''}`}>
+                <div className="thread-date-label" style={{ padding: '10px 12px 4px' }}>Select sources</div>
+                <div className="kb-options-list">
+                  {knowledgeBases.length === 0 && (
+                    <div style={{ padding: '10px 12px', fontSize: 'var(--text-sm)', color: 'var(--color-text-faint)' }}>
+                      No knowledge bases found
+                    </div>
+                  )}
+                  {knowledgeBases.map(kb => {
+                    const sel = selectedKBs.includes(kb.id);
+                    return (
+                      <div key={kb.id} className={`kb-opt ${sel ? 'selected' : ''}`}
+                        onClick={() => setSelectedKBs(sel ? selectedKBs.filter(id => id !== kb.id) : [...selectedKBs, kb.id])}>
+                        <div className="kb-opt-check">
+                          {sel && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><polyline points="20 6 9 17 4 12"/></svg>}
+                        </div>
+                        <span className="kb-opt-name">{kb.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
-            <div className={`kb-dropdown ${kbDropdownOpen ? 'show' : ''}`}>
-              <div className="thread-date-label" style={{ padding: '10px 12px 4px' }}>Select sources</div>
-              <div className="kb-options-list">
-                {knowledgeBases.length === 0 && (
-                  <div style={{ padding: '10px 12px', fontSize: 'var(--text-sm)', color: 'var(--color-text-faint)' }}>
-                    No knowledge bases found
+            {/* Upload button */}
+            <button
+              className={`topbar-btn ${showUpload ? 'topbar-btn-active' : ''}`}
+              onClick={() => { setShowUpload(p => !p); setShowSummarizer(false); }}
+              title="Upload document"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Upload
+            </button>
+
+            {/* Summarizer button */}
+            <button
+              className={`topbar-btn ${showSummarizer ? 'topbar-btn-active' : ''}`}
+              onClick={() => { setShowSummarizer(p => !p); setShowUpload(false); }}
+              title="Summarize text or file"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+              Summarize
+            </button>
+          </div>
+
+          {/* Web search toggle */}
+          <div className={`web-toggle ${useWebSearch ? 'on' : ''}`} onClick={() => setUseWebSearch(p => !p)}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+            <div className="toggle-pill"/>
+            Web Search
+          </div>
+        </div>
+
+        {/* Summarizer slide-in panel */}
+        {showSummarizer && (
+          <div className="chat-panel">
+            <div className="chat-panel-header">
+              <span>Summarizer</span>
+              <button className="chat-panel-close" onClick={() => { setShowSummarizer(false); setSumResult(null); setSumText(''); setSumFile(null); setSumError(''); }}>✕</button>
+            </div>
+            <div className="chat-panel-body">
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                <textarea
+                  className="summarizer-textarea"
+                  style={{ minHeight: 100, flex: 'none' }}
+                  placeholder="Paste text to summarize…"
+                  value={sumText}
+                  onChange={e => setSumText(e.target.value)}
+                  disabled={!!sumFile || sumLoading}
+                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                  <label className="topbar-btn" style={{ cursor: 'pointer' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    {sumFile ? sumFile.name : 'Upload file'}
+                    <input type="file" accept=".pdf,.docx,.doc,.txt,.md" style={{ display: 'none' }}
+                      onChange={e => { setSumFile(e.target.files[0] || null); setSumText(''); }} disabled={sumLoading} />
+                  </label>
+                  {sumFile && (
+                    <button onClick={() => setSumFile(null)} style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontSize: 'var(--text-xs)', fontWeight: 600 }}>
+                      ✕ Remove
+                    </button>
+                  )}
+                  <button className="btn-summarize" style={{ marginLeft: 'auto' }} onClick={handleSummarize} disabled={!sumText.trim() && !sumFile || sumLoading}>
+                    {sumLoading ? <><div className="spinner" style={{ width: 13, height: 13, borderWidth: 2 }}/> Generating…</> : 'Summarize'}
+                  </button>
+                </div>
+                {sumError && <div style={{ color: 'var(--color-error-text)', fontSize: 'var(--text-xs)' }}>{sumError}</div>}
+                {sumResult && (
+                  <div style={{ background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--space-3)', fontSize: 'var(--text-sm)', lineHeight: 1.6, position: 'relative' }}>
+                    <button className="btn-copy" style={{ position: 'absolute', top: 8, right: 8 }} onClick={copySummary}>{sumCopied ? '✓ Copied' : 'Copy'}</button>
+                    <p style={{ paddingRight: 60, whiteSpace: 'pre-wrap' }}>{sumResult.summary}</p>
+                    {sumResult.key_points?.length > 0 && (
+                      <ul style={{ marginTop: 'var(--space-3)', paddingLeft: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                        {sumResult.key_points.map((pt, i) => <li key={i} style={{ fontSize: 'var(--text-xs)' }}>{pt}</li>)}
+                      </ul>
+                    )}
                   </div>
                 )}
-                {knowledgeBases.map(kb => {
-                  const sel = selectedKBs.includes(kb.id);
-                  return (
-                    <div key={kb.id} className={`kb-opt ${sel ? 'selected' : ''}`}
-                      onClick={() => setSelectedKBs(sel ? selectedKBs.filter(id => id !== kb.id) : [...selectedKBs, kb.id])}>
-                      <div className="kb-opt-check">
-                        {sel && <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><polyline points="20 6 9 17 4 12"/></svg>}
-                      </div>
-                      <span className="kb-opt-name">{kb.name}</span>
-                    </div>
-                  );
-                })}
               </div>
             </div>
           </div>
+        )}
 
-          {/* Upload button */}
-          <button
-            className={`topbar-btn ${showUpload ? 'topbar-btn-active' : ''}`}
-            onClick={() => { setShowUpload(p => !p); setShowSummarizer(false); }}
-            title="Upload document"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            Upload
-          </button>
-
-          {/* Summarizer button */}
-          <button
-            className={`topbar-btn ${showSummarizer ? 'topbar-btn-active' : ''}`}
-            onClick={() => { setShowSummarizer(p => !p); setShowUpload(false); }}
-            title="Summarize text or file"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-            </svg>
-            Summarize
-          </button>
-        </div>
-
-        {/* Web search toggle */}
-        <div className={`web-toggle ${useWebSearch ? 'on' : ''}`} onClick={() => setUseWebSearch(p => !p)}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="2" y1="12" x2="22" y2="12"/>
-            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-          </svg>
-          <div className="toggle-pill"/>
-          Web Search
-        </div>
-      </div>
-
-      {/* Summarizer slide-in panel */}
-      {showSummarizer && (
-        <div className="chat-panel">
-          <div className="chat-panel-header">
-            <span>Summarizer</span>
-            <button className="chat-panel-close" onClick={() => { setShowSummarizer(false); setSumResult(null); setSumText(''); setSumFile(null); setSumError(''); }}>✕</button>
-          </div>
-          <div className="chat-panel-body">
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <textarea
-                className="summarizer-textarea"
-                style={{ minHeight: 100, flex: 'none' }}
-                placeholder="Paste text to summarize…"
-                value={sumText}
-                onChange={e => setSumText(e.target.value)}
-                disabled={!!sumFile || sumLoading}
-              />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                <label className="topbar-btn" style={{ cursor: 'pointer' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
-                  {sumFile ? sumFile.name : 'Upload file'}
-                  <input type="file" accept=".pdf,.docx,.doc,.txt,.md" style={{ display: 'none' }}
-                    onChange={e => { setSumFile(e.target.files[0] || null); setSumText(''); }} disabled={sumLoading} />
-                </label>
-                {sumFile && (
-                  <button onClick={() => setSumFile(null)} style={{ background: 'none', border: 'none', color: 'var(--color-error)', cursor: 'pointer', fontSize: 'var(--text-xs)', fontWeight: 600 }}>
-                    ✕ Remove
-                  </button>
-                )}
-                <button className="btn-summarize" style={{ marginLeft: 'auto' }} onClick={handleSummarize} disabled={!sumText.trim() && !sumFile || sumLoading}>
-                  {sumLoading ? <><div className="spinner" style={{ width: 13, height: 13, borderWidth: 2 }}/> Generating…</> : 'Summarize'}
+        {/* Upload panel */}
+        {showUpload && (
+          <div className="chat-panel">
+            <div className="chat-panel-header">
+              <span>Upload Document to Knowledge Base</span>
+              <button className="chat-panel-close" onClick={() => { setShowUpload(false); setUploadFile(null); setUploadMsg(''); }}>✕</button>
+            </div>
+            <div className="chat-panel-body">
+              <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', flex: 1, minWidth: 160 }}>
+                  <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Knowledge Base</label>
+                  <select
+                    value={uploadKB}
+                    onChange={e => setUploadKB(e.target.value)}
+                    style={{ padding: '6px 8px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--color-border)', background: 'var(--color-surface-alt)', color: 'var(--color-text)', fontSize: 'var(--text-sm)', fontFamily: 'inherit' }}
+                  >
+                    <option value="">Select KB…</option>
+                    {knowledgeBases.map(kb => <option key={kb.id} value={kb.id}>{kb.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', flex: 2, minWidth: 200 }}>
+                  <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>File</label>
+                  <label className="topbar-btn" style={{ cursor: 'pointer', width: 'fit-content' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    {uploadFile ? uploadFile.name : 'Choose file'}
+                    <input ref={uploadInputRef} type="file" accept=".pdf,.doc,.docx,.txt,.md,.xlsx,.xls" style={{ display: 'none' }}
+                      onChange={e => { setUploadFile(e.target.files[0] || null); setUploadMsg(''); }} />
+                  </label>
+                </div>
+                <button className="btn-summarize" onClick={handleUpload} disabled={!uploadFile || !uploadKB || uploadLoading}>
+                  {uploadLoading ? <><div className="spinner" style={{ width: 13, height: 13, borderWidth: 2 }}/> Uploading…</> : 'Upload'}
                 </button>
               </div>
-              {sumError && <div style={{ color: 'var(--color-error-text)', fontSize: 'var(--text-xs)' }}>{sumError}</div>}
-              {sumResult && (
-                <div style={{ background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--space-3)', fontSize: 'var(--text-sm)', lineHeight: 1.6, position: 'relative' }}>
-                  <button className="btn-copy" style={{ position: 'absolute', top: 8, right: 8 }} onClick={copySummary}>{sumCopied ? '✓ Copied' : 'Copy'}</button>
-                  <p style={{ paddingRight: 60, whiteSpace: 'pre-wrap' }}>{sumResult.summary}</p>
-                  {sumResult.key_points?.length > 0 && (
-                    <ul style={{ marginTop: 'var(--space-3)', paddingLeft: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-                      {sumResult.key_points.map((pt, i) => <li key={i} style={{ fontSize: 'var(--text-xs)' }}>{pt}</li>)}
-                    </ul>
-                  )}
+              {uploadMsg && (
+                <div style={{ marginTop: 'var(--space-2)', fontSize: 'var(--text-xs)', color: uploadMsg.startsWith('Upload failed') ? 'var(--color-error-text)' : 'var(--color-success)' }}>
+                  {uploadMsg}
                 </div>
               )}
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Upload panel */}
-      {showUpload && (
-        <div className="chat-panel">
-          <div className="chat-panel-header">
-            <span>Upload Document to Knowledge Base</span>
-            <button className="chat-panel-close" onClick={() => { setShowUpload(false); setUploadFile(null); setUploadMsg(''); }}>✕</button>
-          </div>
-          <div className="chat-panel-body">
-            <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', flex: 1, minWidth: 160 }}>
-                <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>Knowledge Base</label>
-                <select
-                  value={uploadKB}
-                  onChange={e => setUploadKB(e.target.value)}
-                  style={{ padding: '6px 8px', borderRadius: 'var(--radius-xs)', border: '1px solid var(--color-border)', background: 'var(--color-surface-alt)', color: 'var(--color-text)', fontSize: 'var(--text-sm)', fontFamily: 'inherit' }}
-                >
-                  <option value="">Select KB…</option>
-                  {knowledgeBases.map(kb => <option key={kb.id} value={kb.id}>{kb.name}</option>)}
-                </select>
+        {/* Messages */}
+        <div className="chat-body">
+          {messages.length === 0 && !loading && (
+            <div className="empty-state">
+              <div className="empty-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="1.5">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', flex: 2, minWidth: 200 }}>
-                <label style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>File</label>
-                <label className="topbar-btn" style={{ cursor: 'pointer', width: 'fit-content' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-                  </svg>
-                  {uploadFile ? uploadFile.name : 'Choose file'}
-                  <input ref={uploadInputRef} type="file" accept=".pdf,.doc,.docx,.txt,.md,.xlsx,.xls" style={{ display: 'none' }}
-                    onChange={e => { setUploadFile(e.target.files[0] || null); setUploadMsg(''); }} />
-                </label>
+              <p className="empty-title">Ask anything about your documents</p>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
+                Select a knowledge base above, then start a conversation.
+              </p>
+              <div className="suggestion-chips">
+                {['Summarize my documents', 'What are the key topics?', 'Explain the main concepts'].map(s => (
+                  <div key={s} className="chip" onClick={() => { setMessage(s); inputRef.current?.focus(); }}>{s}</div>
+                ))}
               </div>
-              <button className="btn-summarize" onClick={handleUpload} disabled={!uploadFile || !uploadKB || uploadLoading}>
-                {uploadLoading ? <><div className="spinner" style={{ width: 13, height: 13, borderWidth: 2 }}/> Uploading…</> : 'Upload'}
+            </div>
+          )}
+
+          {messages.map((msg, idx) => {
+            const isUser = msg.role === 'user';
+            const isExpanded = expandedSources[idx];
+            return (
+              <div key={idx} className="msg-wrapper" style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 'var(--space-4)' }}>
+                <div className={`msg-bubble ${isUser ? 'user-bubble' : 'assistant-bubble'}`}>
+                  <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
+
+                  {!isUser && (msg.confidence || msg.sources?.length > 0) && (
+                    <div className="msg-meta">
+                      {msg.confidence && <div style={{ marginBottom: 'var(--space-1)' }}><ConfidenceBadge score={msg.confidence} /></div>}
+                      {msg.sources?.length > 0 && (
+                        <div>
+                          <button onClick={() => toggleSources(idx)} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontSize: 'var(--text-xs)', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{ transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+                              <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                            {isExpanded ? 'Hide sources' : `${msg.sources.length} sources`}
+                          </button>
+                          {isExpanded && (
+                            <div style={{ marginTop: 'var(--space-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              {msg.sources.map((s, i) => (
+                                <div key={i} onClick={() => handleSourceClick(s)} 
+                                  style={{ 
+                                    fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', 
+                                    padding: '6px 10px', background: 'var(--color-surface-alt)', 
+                                    borderRadius: 'var(--radius-xs)', border: '1px solid var(--color-border)', 
+                                    cursor: 'pointer', transition: 'all 0.2s',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                                  }}>
+                                  <span style={{ fontWeight: 500 }}>{s?.title || `Source ${i + 1}`}</span>
+                                  {s?.metadata?.page && <span style={{ opacity: 0.6 }}>Page {s.metadata.page}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="msg-time">{fmt(msg.created_at)}</div>
+                </div>
+              </div>
+            );
+          })}
+
+          {loading && messages[messages.length - 1]?.content === '' && (
+            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 'var(--space-4)' }}>
+              <TypingIndicator />
+            </div>
+          )}
+          <div ref={endRef} />
+        </div>
+
+        {/* Input */}
+        <div className="chat-input-area">
+          {queryError && (
+            <div style={{ color: 'var(--color-error-text)', background: 'var(--color-error-bg)', fontSize: 'var(--text-sm)', padding: 'var(--space-2) var(--space-4)', borderRadius: 'var(--radius-sm)', marginBottom: 'var(--space-2)', border: '1px solid var(--color-error)' }}>
+              {queryError}
+            </div>
+          )}
+          <div className="input-wrap">
+            <textarea
+              ref={inputRef}
+              className="chat-textarea"
+              rows="1"
+              placeholder="Ask a question… (Shift+Enter for new line)"
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              onKeyDown={handleKey}
+              onInput={autoResize}
+            />
+            <div className="input-actions">
+              <button className="btn-send" onClick={handleSend} disabled={loading || !message.trim()}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <line x1="22" y1="2" x2="11" y2="13"/>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
               </button>
             </div>
-            {uploadMsg && (
-              <div style={{ marginTop: 'var(--space-2)', fontSize: 'var(--text-xs)', color: uploadMsg.startsWith('Upload failed') ? 'var(--color-error-text)' : 'var(--color-success)' }}>
-                {uploadMsg}
+          </div>
+        </div>
+      </div>
+
+      {/* Source Preview */}
+      {previewSource && (
+        <div className="source-preview-panel" style={{ width: 450, borderLeft: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column' }}>
+          <div className="chat-panel-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="2.5">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 'var(--text-sm)' }}>
+                {previewSource.title}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {previewUrl && (
+                <a href={previewUrl} download={previewSource.title} className="chat-panel-close" style={{ fontSize: 12, display: 'flex', alignItems: 'center', color: 'var(--color-primary)', textDecoration: 'none' }} title="Download File">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </a>
+              )}
+              <button className="chat-panel-close" onClick={() => setPreviewSource(null)}>✕</button>
+            </div>
+          </div>
+          <div style={{ flex: 1, position: 'relative', background: '#f5f5f5', display: 'flex', flexDirection: 'column' }}>
+            {previewLoading && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.8)', zIndex: 5 }}>
+                <div className="spinner" style={{ width: 24, height: 24 }} />
               </div>
             )}
+            {previewUrl ? (
+              (previewType === 'application/pdf' || previewType.startsWith('text/') || previewType.startsWith('image/')) ? (
+                <iframe 
+                  src={`${previewUrl}#page=${previewSource.metadata?.page || 1}`}
+                  style={{ width: '100%', height: '100%', border: 'none' }}
+                  title="Document Preview"
+                />
+              ) : (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32, textAlign: 'center' }}>
+                  <div style={{ padding: 20, background: 'var(--color-surface)', borderRadius: '50%' }}>
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-faint)" strokeWidth="1.5">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Preview unavailable</div>
+                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>This file type cannot be displayed directly in the browser.</div>
+                  </div>
+                  <a href={previewUrl} download={previewSource.title} className="btn-summarize" style={{ textDecoration: 'none' }}>
+                    Download to View
+                  </a>
+                </div>
+              )
+            ) : (
+              !previewLoading && <div style={{ padding: 20, textAlign: 'center', color: 'var(--color-text-muted)' }}>Failed to load document preview.</div>
+            )}
+          </div>
+          <div style={{ padding: '16px', background: 'var(--color-surface)', borderTop: '1px solid var(--color-border)', fontSize: 'var(--text-xs)' }}>
+            <div style={{ fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cited Content</div>
+            <div style={{ color: 'var(--color-text)', lineHeight: 1.5, maxHeight: '120px', overflowY: 'auto', fontStyle: 'italic', borderLeft: '3px solid var(--color-primary)', paddingLeft: 12 }}>
+              "{previewSource.text}"
+            </div>
           </div>
         </div>
       )}
-
-      {/* Messages */}
-      <div className="chat-body">
-        {messages.length === 0 && !loading && (
-          <div className="empty-state">
-            <div className="empty-icon">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary)" strokeWidth="1.5">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-              </svg>
-            </div>
-            <p className="empty-title">Ask anything about your documents</p>
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)' }}>
-              Select a knowledge base above, then start a conversation.
-            </p>
-            <div className="suggestion-chips">
-              {['Summarize my documents', 'What are the key topics?', 'Explain the main concepts'].map(s => (
-                <div key={s} className="chip" onClick={() => { setMessage(s); inputRef.current?.focus(); }}>{s}</div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {messages.map((msg, idx) => {
-          const isUser = msg.role === 'user';
-          const isExpanded = expandedSources[idx];
-          return (
-            <div key={idx} className="msg-wrapper" style={{ display: 'flex', justifyContent: isUser ? 'flex-end' : 'flex-start', marginBottom: 'var(--space-4)' }}>
-              <div className={`msg-bubble ${isUser ? 'user-bubble' : 'assistant-bubble'}`}>
-                <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
-
-                {!isUser && (msg.confidence || msg.sources?.length > 0) && (
-                  <div className="msg-meta">
-                    {msg.confidence && <div style={{ marginBottom: 'var(--space-1)' }}><ConfidenceBadge score={msg.confidence} /></div>}
-                    {msg.sources?.length > 0 && (
-                      <div>
-                        <button onClick={() => toggleSources(idx)} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontSize: 'var(--text-xs)', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}>
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{ transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
-                            <polyline points="6 9 12 15 18 9"/>
-                          </svg>
-                          {isExpanded ? 'Hide sources' : `${msg.sources.length} sources`}
-                        </button>
-                        {isExpanded && (
-                          <div style={{ marginTop: 'var(--space-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            {msg.sources.map((s, i) => (
-                              <div key={i} style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', padding: '4px 8px', background: 'var(--color-surface-alt)', borderRadius: 'var(--radius-xs)', border: '1px solid var(--color-border)' }}>
-                                {s?.title || `Source ${i + 1}`}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className="msg-time">{fmt(msg.created_at)}</div>
-              </div>
-            </div>
-          );
-        })}
-
-        {loading && messages[messages.length - 1]?.content === '' && (
-          <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 'var(--space-4)' }}>
-            <TypingIndicator />
-          </div>
-        )}
-        <div ref={endRef} />
-      </div>
-
-      {/* Input */}
-      <div className="chat-input-area">
-        {queryError && (
-          <div style={{ color: 'var(--color-error-text)', background: 'var(--color-error-bg)', fontSize: 'var(--text-sm)', padding: 'var(--space-2) var(--space-4)', borderRadius: 'var(--radius-sm)', marginBottom: 'var(--space-2)', border: '1px solid var(--color-error)' }}>
-            {queryError}
-          </div>
-        )}
-        <div className="input-wrap">
-          <textarea
-            ref={inputRef}
-            className="chat-textarea"
-            rows="1"
-            placeholder="Ask a question… (Shift+Enter for new line)"
-            value={message}
-            onChange={e => setMessage(e.target.value)}
-            onKeyDown={handleKey}
-            onInput={autoResize}
-          />
-          <div className="input-actions">
-            <button className="btn-send" onClick={handleSend} disabled={loading || !message.trim()}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <line x1="22" y1="2" x2="11" y2="13"/>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

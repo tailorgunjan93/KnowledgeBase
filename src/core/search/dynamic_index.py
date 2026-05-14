@@ -56,7 +56,7 @@ class DocumentIndex:
         self.chunks: List[str] = []
         self.chunk_ids: List[str] = []
 
-    def build(self, text: str) -> bool:
+    def build(self, text: str, pages: List[Dict[str, Any]] = None) -> bool:
         """Build indices for document text."""
         if faiss is None or BM25Okapi is None:
             raise ImportError("faiss-cpu and rank-bm25 required")
@@ -66,7 +66,16 @@ class DocumentIndex:
             self.index_dir.mkdir(parents=True, exist_ok=True)
 
             # Chunk the text
-            self.chunks = self._chunk_text(text)
+            if pages:
+                self.chunks_data = self._chunk_text(pages)
+                self.chunks = [c["text"] for c in self.chunks_data]
+                self.chunk_metadata = [c["metadata"] for c in self.chunks_data]
+            else:
+                # Legacy fallback
+                self.chunks = self._chunk_text([{"page": 1, "text": text}])
+                self.chunks = [c["text"] for c in self.chunks]
+                self.chunk_metadata = [c["metadata"] for c in self.chunks]
+
             self.chunk_ids = [f"chunk_{i}" for i in range(len(self.chunks))]
 
             # Build FAISS index
@@ -85,17 +94,35 @@ class DocumentIndex:
             logger.error(f"Failed to build indices: {e}")
             return False
 
-    def _chunk_text(self, text: str) -> List[str]:
-        """Split text into overlapping chunks."""
-        words = text.split()
+    def _chunk_text(self, pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Split text into overlapping chunks while preserving page metadata."""
         chunks = []
+        
+        for page_data in pages:
+            page_num = page_data.get("page", 1)
+            text = page_data.get("text", "")
+            words = text.split()
+            
+            if not words:
+                continue
 
-        for i in range(0, len(words), self.chunk_size // 2):
-            chunk = " ".join(words[i : i + self.chunk_size])
-            if chunk:
-                chunks.append(chunk)
+            for i in range(0, len(words), self.chunk_size // 2):
+                chunk_text = " ".join(words[i : i + self.chunk_size])
+                if chunk_text:
+                    chunks.append({
+                        "text": chunk_text,
+                        "metadata": {
+                            "page": page_num,
+                            "start_word": i,
+                            "end_word": i + len(chunk_text.split())
+                        }
+                    })
 
-        return chunks if chunks else [text]
+        if not chunks:
+            # Fallback for empty/unstructured text
+            return [{"text": "", "metadata": {"page": 1}}]
+            
+        return chunks
 
     def _build_faiss_index(self):
         """Build FAISS index from chunks."""
@@ -128,8 +155,14 @@ class DocumentIndex:
         if self.bm25_index:
             with open(self.index_dir / "bm25.pkl", "wb") as f:
                 pickle.dump(self.bm25_index, f)
+        
+        # Save chunks and metadata
         with open(self.index_dir / "chunks.pkl", "wb") as f:
-            pickle.dump({"chunks": self.chunks, "chunk_ids": self.chunk_ids}, f)
+            pickle.dump({
+                "chunks": self.chunks, 
+                "chunk_ids": self.chunk_ids,
+                "chunk_metadata": getattr(self, "chunk_metadata", [None] * len(self.chunks))
+            }, f)
 
     def load(self) -> bool:
         """Load indices from disk."""
@@ -148,6 +181,7 @@ class DocumentIndex:
                     data = pickle.load(f)
                     self.chunks = data["chunks"]
                     self.chunk_ids = data["chunk_ids"]
+                    self.chunk_metadata = data.get("chunk_metadata", [None] * len(self.chunks))
             
             # Validate consistency: if BM25 index exists but chunks are missing or empty, discard BM25
             if self.bm25_index and (not self.chunks or not self.chunk_ids):
@@ -187,6 +221,7 @@ class DocumentIndex:
                             "doc_id": str(self.document_id),
                             "chunk_id": self.chunk_ids[idx],
                             "text": self.chunks[idx],
+                            "metadata": self.chunk_metadata[idx] if idx < len(self.chunk_metadata) else None,
                             "faiss_score": float(1 / (1 + dist)),
                             "source": "faiss",
                         }
@@ -212,6 +247,7 @@ class DocumentIndex:
                             "doc_id": str(self.document_id),
                             "chunk_id": self.chunk_ids[idx],
                             "text": self.chunks[idx],
+                            "metadata": self.chunk_metadata[idx] if idx < len(self.chunk_metadata) else None,
                             "bm25_score": float(scores[idx]),
                             "source": "bm25",
                         }
@@ -339,10 +375,10 @@ class IndexManager:
         self.base_path = Path(base_path) / str(kb_id)
         self.base_path.mkdir(parents=True, exist_ok=True)
 
-    def create_document_index(self, document_id: int, text: str) -> bool:
+    def create_document_index(self, document_id: int, text: str, pages: List[Dict[str, Any]] = None) -> bool:
         """Create index for a new document."""
         index = DocumentIndex(document_id, str(self.base_path.parent))
-        success = index.build(text)
+        success = index.build(text, pages)
         if success:
             index.save()
         return success
