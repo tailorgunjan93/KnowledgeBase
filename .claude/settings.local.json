@@ -7,7 +7,8 @@
       "Bash(kill %1)",
       "Bash(npm run *)",
       "Bash(main.jsx\")",
-      "PowerShell(.venv\\\\Scripts\\\\pip install \"openai>=1.0.0\" \"google-generativeai>=0.7.0\" \"boto3>=1.35.0\" --quiet 2>&1)"
+      "PowerShell(.venv\\\\Scripts\\\\pip install \"openai>=1.0.0\" \"google-generativeai>=0.7.0\" \"boto3>=1.35.0\" --quiet 2>&1)",
+      "Bash(find /mnt/d/Learning/KnowledgeBase -maxdepth 3 -not -path '*/.venv/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -not -path '*/.git/*' 2>/dev/null | sort || ls /mnt/d/Learning/ 2>/dev/null || echo \"Path issue\")"
     ]
   }
 }

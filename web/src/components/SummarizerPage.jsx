@@ -157,7 +157,7 @@ export function SummarizerPage() {
 
             {summary && (
               <div style={{ animation: 'fadeIn 0.3s ease' }}>
-                <p style={{ lineHeight: 1.75, whiteSpace: 'pre-wrap', marginBottom: 'var(--space-4)' }}>
+                <p style={{ fontSize: 'var(--text-base)', lineHeight: 1.85, whiteSpace: 'pre-wrap', marginBottom: 'var(--space-4)' }}>
                   {summary.summary}
                 </p>
 
@@ -177,7 +177,7 @@ export function SummarizerPage() {
                     </div>
                     <ul style={{ paddingLeft: 'var(--space-5)', margin: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                       {summary.key_points.map((pt, i) => (
-                        <li key={i} style={{ fontSize: 'var(--text-sm)', lineHeight: 1.5 }}>{pt}</li>
+                        <li key={i} style={{ fontSize: 'var(--text-base)', lineHeight: 1.7 }}>{pt}</li>
                       ))}
                     </ul>
                   </div>

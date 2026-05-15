@@ -67,6 +67,7 @@ const DEFAULT_CFG = {
 };
 
 export function SettingsPage({ user }) {
+  const [settingsTab, setSettingsTab]        = useState('llm');
   const [activeTab, setActiveTab]           = useState('groq');
   const [cfg, setCfg]                       = useState(DEFAULT_CFG);
   const [provider, setProvider]             = useState(null);
@@ -279,7 +280,41 @@ export function SettingsPage({ user }) {
         <p>Configure your LLM provider and application preferences.</p>
       </div>
 
+      {/* Top-level tab navigation */}
+      <div className="settings-top-tabs">
+        <button
+          className={`settings-top-tab ${settingsTab === 'llm' ? 'active' : ''}`}
+          onClick={() => setSettingsTab('llm')}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          LLM Providers
+        </button>
+        <button
+          className={`settings-top-tab ${settingsTab === 'websearch' ? 'active' : ''}`}
+          onClick={() => setSettingsTab('websearch')}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          Web Search
+        </button>
+        <button
+          className={`settings-top-tab ${settingsTab === 'account' ? 'active' : ''}`}
+          onClick={() => setSettingsTab('account')}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+          </svg>
+          Account
+        </button>
+      </div>
+
       <div className="settings-body">
+
+        {/* ── LLM Providers tab ── */}
+        {settingsTab === 'llm' && <>
 
         {/* Status card */}
         <div className="settings-card">
@@ -436,7 +471,11 @@ export function SettingsPage({ user }) {
           </div>
         </div>
 
-        {/* Web Search */}
+        {/* end LLM tab */}
+        </>}
+
+        {/* ── Web Search tab ── */}
+        {settingsTab === 'websearch' && (
         <div className="settings-card">
           <div className="settings-card-title">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -459,8 +498,10 @@ export function SettingsPage({ user }) {
             </button>
           </div>
         </div>
+        )}
 
-        {/* Account */}
+        {/* ── Account tab ── */}
+        {settingsTab === 'account' && (
         <div className="settings-card">
           <div className="settings-card-title">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -468,14 +509,22 @@ export function SettingsPage({ user }) {
             </svg>
             Account
           </div>
-          <div className="provider-status-row">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-faint)" strokeWidth="2">
-              <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-            </svg>
-            <span style={{ color: 'var(--color-text)', fontSize: 'var(--text-sm)', fontWeight: 500 }}>{user?.username || '—'}</span>
-            {user?.email && <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)' }}>· {user.email}</span>}
+          <div className="provider-status-row" style={{ marginBottom: 'var(--space-4)' }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--gradient-aurora)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ color: 'white', fontWeight: 700, fontSize: 'var(--text-sm)' }}>
+                {(user?.username || 'U')[0].toUpperCase()}
+              </span>
+            </div>
+            <div>
+              <div style={{ color: 'var(--color-text)', fontSize: 'var(--text-sm)', fontWeight: 600 }}>{user?.username || '—'}</div>
+              {user?.email && <div style={{ color: 'var(--color-text-muted)', fontSize: 'var(--text-xs)', marginTop: 2 }}>{user.email}</div>}
+            </div>
+          </div>
+          <div className="settings-field-hint">
+            Account management and advanced profile settings coming soon.
           </div>
         </div>
+        )}
 
       </div>
     </div>

@@ -4,12 +4,14 @@ import { useDocuments } from '../hooks/useDocuments';
 import { chatAPI } from '../api';
 import { httpClient } from '../api/httpClient';
 import ConfidenceBadge from '../components/ConfidenceBadge';
-import TypingIndicator from '../components/TypingIndicator';
+import { PipelineProgress } from '../components/PipelineProgress';
 
 export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }) {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
-  const [streamStatus, setStreamStatus] = useState(null); // Dedicated state for thinking steps
+  const [streamStatus, setStreamStatus]     = useState(null);
+  const [pipelineMode, setPipelineMode]     = useState('general');
+  const [pipelineHistory, setPipelineHistory] = useState(new Set());
   const [selectedKBs, setSelectedKBs] = useState([]);
   const [useWebSearch, setUseWebSearch] = useState(false);
   const [useAdvancedRAG, setUseAdvancedRAG] = useState(false);
@@ -92,6 +94,19 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
     return () => document.removeEventListener('click', close);
   }, [kbDropdownOpen]);
 
+  // Track which pipeline statuses have been seen (for step "done" state)
+  useEffect(() => {
+    if (streamStatus) {
+      setPipelineHistory(prev => {
+        const next = new Set(prev);
+        next.add(streamStatus);
+        return next;
+      });
+    } else {
+      setPipelineHistory(new Set());
+    }
+  }, [streamStatus]);
+
   // Load messages when session changes (but skip when WE just created a new session)
   useEffect(() => {
     setPreviewSource(null);
@@ -117,6 +132,13 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
 
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setMessages(prev => [...prev, { role: 'assistant', content: '', loading: true }]);
+
+    // Set pipeline mode and reset history before the request
+    const mode = selectedKBs.length > 0
+      ? (useAdvancedRAG ? 'kb_advanced' : 'kb_simple')
+      : useWebSearch ? 'web' : 'general';
+    setPipelineMode(mode);
+    setPipelineHistory(new Set());
 
     // Show status immediately (don't wait for backend — network timing is unreliable)
     if (selectedKBs.length > 0) {
@@ -377,13 +399,16 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
                 </div>
                 {sumError && <div style={{ color: 'var(--color-error-text)', fontSize: 'var(--text-xs)' }}>{sumError}</div>}
                 {sumResult && (
-                  <div style={{ background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--space-3)', fontSize: 'var(--text-sm)', lineHeight: 1.6, position: 'relative' }}>
+                  <div style={{ background: 'var(--color-surface-alt)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--space-4)', fontSize: 'var(--text-base)', lineHeight: 1.8, position: 'relative', overflowY: 'auto' }}>
                     <button className="btn-copy" style={{ position: 'absolute', top: 8, right: 8 }} onClick={copySummary}>{sumCopied ? '✓ Copied' : 'Copy'}</button>
-                    <p style={{ paddingRight: 60, whiteSpace: 'pre-wrap' }}>{sumResult.summary}</p>
+                    <p style={{ paddingRight: 64, whiteSpace: 'pre-wrap', marginBottom: sumResult.key_points?.length > 0 ? 'var(--space-3)' : 0 }}>{sumResult.summary}</p>
                     {sumResult.key_points?.length > 0 && (
-                      <ul style={{ marginTop: 'var(--space-3)', paddingLeft: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-                        {sumResult.key_points.map((pt, i) => <li key={i} style={{ fontSize: 'var(--text-xs)' }}>{pt}</li>)}
-                      </ul>
+                      <div style={{ background: 'var(--color-primary-light)', borderLeft: '3px solid var(--color-primary)', borderRadius: 'var(--radius-xs)', padding: 'var(--space-3) var(--space-4)' }}>
+                        <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-primary)', marginBottom: 'var(--space-2)' }}>Key Takeaways</div>
+                        <ul style={{ paddingLeft: 'var(--space-5)', margin: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                          {sumResult.key_points.map((pt, i) => <li key={i} style={{ fontSize: 'var(--text-sm)', lineHeight: 1.65 }}>{pt}</li>)}
+                        </ul>
+                      </div>
                     )}
                   </div>
                 )}
@@ -476,7 +501,16 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
                       {msg.status}
                     </div>
                   )}
-                  <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
+                  {msg.loading && !msg.content ? (
+                    <>
+                      <div className="skeleton-line w-100" />
+                      <div className="skeleton-line w-85" />
+                      <div className="skeleton-line w-70" />
+                      <div className="skeleton-line w-45" />
+                    </>
+                  ) : (
+                    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
+                  )}
 
                   {!isUser && (msg.confidence || msg.sources?.length > 0) && (
                     <div className="msg-meta">
@@ -490,20 +524,23 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
                             {isExpanded ? 'Hide sources' : `${msg.sources.length} sources`}
                           </button>
                           {isExpanded && (
-                            <div style={{ marginTop: 'var(--space-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                              {msg.sources.map((s, i) => (
-                                <div key={i} onClick={() => handleSourceClick(s)} 
-                                  style={{ 
-                                    fontSize: 'var(--text-xs)', color: 'var(--color-text-muted)', 
-                                    padding: '6px 10px', background: 'var(--color-surface-alt)', 
-                                    borderRadius: 'var(--radius-xs)', border: '1px solid var(--color-border)', 
-                                    cursor: 'pointer', transition: 'all 0.2s',
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                                  }}>
-                                  <span style={{ fontWeight: 500 }}>{s?.title || `Source ${i + 1}`}</span>
-                                  {s?.metadata?.page && <span style={{ opacity: 0.6 }}>Page {s.metadata.page}</span>}
-                                </div>
-                              ))}
+                            <div className="citation-chips">
+                              {msg.sources.map((s, i) => {
+                                const pct = s?.score != null ? Math.round(s.score * 100) : null;
+                                const scoreClass = pct == null ? ''
+                                  : pct >= 85 ? 'score-high'
+                                  : pct >= 70 ? 'score-mid'
+                                  : 'score-low';
+                                return (
+                                  <div key={i} className="citation-chip" onClick={() => handleSourceClick(s)}>
+                                    <span>{s?.type === 'web' ? '🌐' : '📄'}</span>
+                                    <span className="citation-chip-name">{s?.title || `Source ${i + 1}`}</span>
+                                    {pct != null && (
+                                      <span className={`citation-score ${scoreClass}`}>{pct}%</span>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -516,29 +553,13 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
             );
           })}
 
-          {/* Typing indicator — shows when loading with no content yet and no status */}
-          {loading && messages[messages.length - 1]?.content === '' && !streamStatus && (
-            <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 'var(--space-4)' }}>
-              <TypingIndicator />
-            </div>
-          )}
-
-          {/* Thinking Bar — shows pipeline steps independently from message state */}
+          {/* Pipeline progress — step-by-step RAG visualization */}
           {streamStatus && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              margin: '4px 0 16px 0', padding: '10px 16px',
-              background: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderLeft: '3px solid var(--color-primary)',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: 'var(--text-sm)', color: 'var(--color-text-muted)',
-              fontWeight: 500, animation: 'pulse 1.6s ease-in-out infinite',
-              maxWidth: '80%',
-            }}>
-              <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2, flexShrink: 0 }} />
-              <span>{streamStatus}</span>
-            </div>
+            <PipelineProgress
+              currentStatus={streamStatus}
+              seenStatuses={pipelineHistory}
+              mode={pipelineMode}
+            />
           )}
 
           <div ref={endRef} />

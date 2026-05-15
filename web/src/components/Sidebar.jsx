@@ -4,6 +4,28 @@ import { useTheme } from '../context/ThemeContext';
 import { httpClient } from '../api/httpClient';
 import { chatAPI } from '../api';
 
+/* Neural synapse icon — pentagon node arrangement */
+function SynapseIcon({ size = 18, white = true }) {
+  const c = white ? 'rgba(255,255,255,0.9)' : '#4F8EF7';
+  const cm = white ? 'rgba(255,255,255,0.65)' : '#7B5CF6';
+  return (
+    <svg width={size} height={size} viewBox="0 0 28 28" fill="none">
+      <line x1="14" y1="14" x2="14" y2="4"   stroke={c}  strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="14" y1="14" x2="23" y2="9.5" stroke={c}  strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="14" y1="14" x2="20" y2="22"  stroke={cm} strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="14" y1="14" x2="8"  y2="22"  stroke={cm} strokeWidth="1.5" strokeLinecap="round"/>
+      <line x1="14" y1="14" x2="5"  y2="9.5" stroke={c}  strokeWidth="1.5" strokeLinecap="round"/>
+      <circle cx="14"  cy="4"   r="2.2" fill={c}  />
+      <circle cx="23"  cy="9.5" r="1.9" fill={c}  />
+      <circle cx="20"  cy="22"  r="1.7" fill={cm} />
+      <circle cx="8"   cy="22"  r="1.7" fill={cm} />
+      <circle cx="5"   cy="9.5" r="1.9" fill={c}  />
+      <circle cx="14"  cy="14"  r="4.5" fill="white" fillOpacity="0.9"/>
+      <circle cx="14"  cy="14"  r="2"   fill="white"/>
+    </svg>
+  );
+}
+
 export function Sidebar({ activeTab, setActiveTab, sessions, currentSession, onLoadSession, onNewChat, onDeleteSession }) {
   const { logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -16,12 +38,9 @@ export function Sidebar({ activeTab, setActiveTab, sessions, currentSession, onL
     httpClient.get('/api/llm-provider').then(res => setProvider(res.data)).catch(() => {});
   }, [activeTab]);
 
-  // Fetch sessions when chat tab is active
   useEffect(() => {
     if (activeTab === 'chat') {
-      chatAPI.getSessions().then(res => {
-        // sessions are managed by App, but we trigger a refresh via onNewChat side-effect
-      }).catch(() => {});
+      chatAPI.getSessions().catch(() => {});
     }
   }, [activeTab]);
 
@@ -32,6 +51,7 @@ export function Sidebar({ activeTab, setActiveTab, sessions, currentSession, onL
     provider.active_provider === 'nvidia' ? 'NVIDIA NIM' :
     provider.active_provider === 'aws'    ? 'AWS Bedrock' :
     provider.active_provider === 'ollama' ? 'Ollama Local' : 'No LLM';
+
   const isOnline = provider.active_provider !== 'none';
   const isDark = theme === 'dark';
 
@@ -61,31 +81,25 @@ export function Sidebar({ activeTab, setActiveTab, sessions, currentSession, onL
         {!collapsed && (
           <div className="brand">
             <div className="brand-mark">
-              <svg viewBox="0 0 26 26" fill="none">
-                <path d="M6 4v18" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-                <path d="M6 13L16 5" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-                <path d="M6 13L18 21" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-                <circle cx="20" cy="5" r="2.5" fill="rgba(255,255,255,0.7)"/>
-              </svg>
+              <SynapseIcon size={18} white />
             </div>
             <div>
-              <div className="brand-name">KBase</div>
-              <div className="brand-sub">Knowledge Base AI</div>
+              <div className="brand-name">Synapse</div>
+              <div className="brand-sub">Knowledge Operating System</div>
             </div>
           </div>
         )}
         {collapsed && (
           <div className="brand-mark">
-            <svg viewBox="0 0 26 26" fill="none">
-              <path d="M6 4v18" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-              <path d="M6 13L16 5" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-              <path d="M6 13L18 21" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-              <circle cx="20" cy="5" r="2.5" fill="rgba(255,255,255,0.7)"/>
-            </svg>
+            <SynapseIcon size={18} white />
           </div>
         )}
-        <button className="sidebar-collapse-btn" onClick={() => setCollapsed(p => !p)} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          style={collapsed ? { margin: 0 } : {}}>
+        <button
+          className="sidebar-collapse-btn"
+          onClick={() => setCollapsed(p => !p)}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          style={collapsed ? { margin: 0 } : {}}
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             {collapsed
               ? <polyline points="9 18 15 12 9 6"/>
@@ -116,7 +130,7 @@ export function Sidebar({ activeTab, setActiveTab, sessions, currentSession, onL
 
         <NavItem tab="settings" label="Settings" icon={<><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></>} />
 
-        {/* Chat history section */}
+        {/* Chat history */}
         {activeTab === 'chat' && !collapsed && (
           <div className="history-section">
             <button className="history-section-header" onClick={() => setHistoryOpen(p => !p)}>

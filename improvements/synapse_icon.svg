@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+
+    <linearGradient id="aurora" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#4F8EF7"/>
+      <stop offset="55%"  stop-color="#7B5CF6"/>
+      <stop offset="100%" stop-color="#A78BFA"/>
+    </linearGradient>
+
+    <radialGradient id="bgRadial" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#0C1830"/>
+      <stop offset="100%" stop-color="#050A16"/>
+    </radialGradient>
+
+    <radialGradient id="iconGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#4F8EF7" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#4F8EF7" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="glowSm" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="glowMd" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+  </defs>
+
+  <!-- Background square with rounded corners -->
+  <rect width="200" height="200" rx="40" fill="url(#bgRadial)"/>
+  <rect width="200" height="200" rx="40" fill="none"
+        stroke="rgba(79,142,247,0.22)" stroke-width="1.5"/>
+  <!-- Top highlight -->
+  <rect x="1.5" y="1.5" width="197" height="1.5" rx="1"
+        fill="rgba(255,255,255,0.07)"/>
+
+  <!-- Ambient glow -->
+  <circle cx="100" cy="100" r="80" fill="url(#iconGlow)"/>
+
+  <!--
+    Pentagon (r=62, center 100,100):
+    A (top):          100, 38
+    B (top-right):    159, 57   ← 100+62*cos(-18°)=100+58.97≈159, 100+62*sin(-18°)=100-19.17≈81...
+
+    Wait, let me recalculate:
+    r = 58 (slightly smaller to fit better in 200x200)
+    center = (100, 105) — slightly lower to visually center
+
+    A: angle=-90°  → x=100+58*cos(-90°)=100,  y=105+58*sin(-90°)=105-58=47
+    B: angle=-18°  → x=100+58*cos(-18°)=100+55.15=155, y=105+58*sin(-18°)=105-17.93=87
+    C: angle= 54°  → x=100+58*cos(54°)=100+34.10=134,  y=105+58*sin(54°)=105+46.95=152
+    D: angle=126°  → x=100+58*cos(126°)=100-34.10=66,  y=105+58*sin(126°)=105+46.95=152
+    E: angle=198°  → x=100+58*cos(198°)=100-55.15=45,  y=105+58*sin(198°)=105-17.93=87
+  -->
+
+  <!-- Outer web edges (very faint) -->
+  <line x1="100" y1="47"  x2="155" y2="87"  stroke="#4F8EF7" stroke-width="1"   opacity="0.13"/>
+  <line x1="155" y1="87"  x2="134" y2="152" stroke="#7B5CF6" stroke-width="1"   opacity="0.13"/>
+  <line x1="134" y1="152" x2="66"  y2="152" stroke="#7B5CF6" stroke-width="1"   opacity="0.13"/>
+  <line x1="66"  y1="152" x2="45"  y2="87"  stroke="#4F8EF7" stroke-width="1"   opacity="0.13"/>
+  <line x1="45"  y1="87"  x2="100" y2="47"  stroke="#4F8EF7" stroke-width="1"   opacity="0.13"/>
+
+  <!-- Spokes from center (100, 105) to outer nodes -->
+  <line x1="100" y1="105" x2="100" y2="47"  stroke="url(#aurora)" stroke-width="2"   opacity="0.58"/>
+  <line x1="100" y1="105" x2="155" y2="87"  stroke="url(#aurora)" stroke-width="2"   opacity="0.58"/>
+  <line x1="100" y1="105" x2="134" y2="152" stroke="url(#aurora)" stroke-width="2"   opacity="0.50"/>
+  <line x1="100" y1="105" x2="66"  y2="152" stroke="url(#aurora)" stroke-width="2"   opacity="0.50"/>
+  <line x1="100" y1="105" x2="45"  y2="87"  stroke="url(#aurora)" stroke-width="2"   opacity="0.58"/>
+
+  <!-- Signal dots at spoke midpoints -->
+  <circle cx="100" cy="76"  r="3"   fill="#5B9BFF" opacity="0.95"/>
+  <circle cx="127" cy="96"  r="2.8" fill="#6E87F8" opacity="0.90"/>
+  <circle cx="117" cy="128" r="2.4" fill="#7B5CF6" opacity="0.85"/>
+  <circle cx="83"  cy="128" r="2.4" fill="#7B5CF6" opacity="0.85"/>
+  <circle cx="72"  cy="96"  r="2.8" fill="#5B9BFF" opacity="0.90"/>
+
+  <!-- Outer nodes -->
+  <!-- A — top -->
+  <circle cx="100" cy="47"  r="10"  fill="#050A16" stroke="#4F8EF7" stroke-width="2.2" filter="url(#glowSm)"/>
+  <circle cx="100" cy="47"  r="5"   fill="#4F8EF7"/>
+
+  <!-- B — top-right -->
+  <circle cx="155" cy="87"  r="9.5" fill="#050A16" stroke="#6080F8" stroke-width="2.2" filter="url(#glowSm)"/>
+  <circle cx="155" cy="87"  r="4.5" fill="#6080F8"/>
+
+  <!-- C — bottom-right -->
+  <circle cx="134" cy="152" r="9"   fill="#050A16" stroke="#7B5CF6" stroke-width="2.2" filter="url(#glowSm)"/>
+  <circle cx="134" cy="152" r="4.5" fill="#7B5CF6"/>
+
+  <!-- D — bottom-left -->
+  <circle cx="66"  cy="152" r="9"   fill="#050A16" stroke="#7B5CF6" stroke-width="2.2" filter="url(#glowSm)"/>
+  <circle cx="66"  cy="152" r="4.5" fill="#7B5CF6"/>
+
+  <!-- E — top-left -->
+  <circle cx="45"  cy="87"  r="9.5" fill="#050A16" stroke="#4F8EF7" stroke-width="2.2" filter="url(#glowSm)"/>
+  <circle cx="45"  cy="87"  r="4.5" fill="#4F8EF7"/>
+
+  <!-- Central hub node -->
+  <circle cx="100" cy="105" r="24"  fill="#050A16" stroke="url(#aurora)" stroke-width="3" filter="url(#glowMd)"/>
+  <circle cx="100" cy="105" r="14"  fill="url(#aurora)"/>
+  <!-- Specular highlight -->
+  <circle cx="94"  cy="99"  r="4.8" fill="rgba(215,238,255,0.90)"/>
+
+</svg>

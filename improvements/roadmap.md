@@ -78,5 +78,32 @@ Store user provider keys using AES-256 encryption at rest, decrypted only during
 ### 🚀 Distributed Workers
 Move indexing and heavy summarization to a dedicated worker pool (e.g., Celery + Redis) to keep the main API lightning fast.
 
+
 ### 📦 Quantized Embeddings
 Use binary or int8 quantization for FAISS indices to reduce memory footprint for massive document sets.
+
+---
+
+## 7. UI/UX Evolution & Premium Branding
+
+Transform the application from a functional tool into a world-class Knowledge Operating System.
+
+### 🏷️ Brand Identity: "AuraKB"
+*   **The Name**: Derived from "Aura" (atmosphere/essence) and "KB" (Knowledge Base). It implies a seamless, surrounding intelligence.
+*   **Alternatives**: *CogniSource*, *Nexus Knowledge*, *VelaAI*.
+
+### 🎨 Logo Concept
+*   **Visual**: A stylized, geometric "A" formed by interconnected nodes and glowing neural pathways.
+*   **Style**: Abstract minimalism with a "Glassmorphism" overlay.
+*   **Palette**: Deep obsidian base with a vibrant **Electric Indigo to Aurora Teal** gradient.
+
+### ✨ Visual Excellence (UI Design)
+*   **Glassmorphism Overhaul**: Use semi-transparent, frosted-glass panels for sidebars and chat bubbles to create depth and a high-end feel.
+*   **Obsidian Dark Mode**: Implement a default "True Dark" mode using HSL-based slate and charcoal tones instead of pure black.
+*   **Generative UI Components**: Instead of just text, the AI should render dynamic interactive elements (e.g., auto-generated tables, charts for data, or side-by-side document diffs).
+*   **Micro-animations**: Add subtle "spring" transitions for opening sidebars, fading in search results, and "pulsing" gradients during the thinking state.
+
+### 🧩 Seamless Interaction
+*   **Split-View Preview**: When a source is clicked, the UI should smoothly slide into a 50/50 split view, keeping the conversation on the left and the document deep-dive on the right.
+*   **Focus Mode**: A "distraction-free" mode that centers the chat and hides all sidebars for long-form research and writing.
+*   **Command Palette**: A Global `Ctrl + K` search bar to quickly jump between Knowledge Bases, Sessions, or Settings without using the mouse.
