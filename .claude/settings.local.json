@@ -18,7 +18,9 @@
       "Bash(python -m ruff check src/)",
       "PowerShell(cd \"D:\\\\Learning\\\\KnowledgeBase\"; .venv\\\\Scripts\\\\ruff.exe check src/ 2>&1 | Where-Object { $_ -notmatch \"^warning:|^  -\" })",
       "Bash(python3 -m pytest tests/ -v --tb=short)",
-      "PowerShell(cd \"D:\\\\Learning\\\\KnowledgeBase\"; $env:PYTHONPATH = \"D:\\\\Learning\\\\KnowledgeBase\"; & \"C:\\\\Users\\\\tailo\\\\AppData\\\\Local\\\\Packages\\\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\\\LocalCache\\\\local-packages\\\\Python311\\\\Scripts\\\\pytest.exe\" tests/ -v --tb=short 2>&1)"
+      "PowerShell(cd \"D:\\\\Learning\\\\KnowledgeBase\"; $env:PYTHONPATH = \"D:\\\\Learning\\\\KnowledgeBase\"; & \"C:\\\\Users\\\\tailo\\\\AppData\\\\Local\\\\Packages\\\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\\\LocalCache\\\\local-packages\\\\Python311\\\\Scripts\\\\pytest.exe\" tests/ -v --tb=short 2>&1)",
+      "Bash(cd /mnt/d/Learning/KnowledgeBase)",
+      "Bash(cat \"D:/Learning/KnowledgeBase/web/package.json\")"
     ]
   }
 }

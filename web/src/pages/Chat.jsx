@@ -5,6 +5,7 @@ import { chatAPI } from '../api';
 import { httpClient } from '../api/httpClient';
 import ConfidenceBadge from '../components/ConfidenceBadge';
 import { PipelineProgress } from '../components/PipelineProgress';
+import { MarkdownRenderer } from '../components/MarkdownRenderer';
 
 export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }) {
   const [message, setMessage] = useState('');
@@ -508,8 +509,10 @@ export function ChatPage({ currentSession, setCurrentSession, onSessionCreated }
                       <div className="skeleton-line w-70" />
                       <div className="skeleton-line w-45" />
                     </>
+                  ) : isUser ? (
+                    <div className="user-text">{msg.content}</div>
                   ) : (
-                    <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
+                    <MarkdownRenderer content={msg.content} />
                   )}
 
                   {!isUser && (msg.confidence || msg.sources?.length > 0) && (
