@@ -28,15 +28,52 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     log.info(f"Starting {settings.app_name}...")
 
-    # Initialize DB adapter
     from .infrastructure.database.database import Database
+    from sqlalchemy import text, select
     db = Database(settings.db_url)
+
+    # 1 ── Create all tables (idempotent)
     await db.create_all()
-    
-    # Cleanup stuck documents (legacy logic integration)
-    from .api.documents import cleanup_stuck_documents
-    async with db.session() as session:
-        await cleanup_stuck_documents(session)
+    log.info("Database tables ready.")
+
+    # 2 ── Schema migration: add role column to users (SQLite can't do IF NOT EXISTS)
+    try:
+        async with db.engine.begin() as conn:
+            await conn.execute(text(
+                "ALTER TABLE users ADD COLUMN role VARCHAR(10) NOT NULL DEFAULT 'user'"
+            ))
+        log.info("Schema migration: added 'role' column to users.")
+    except Exception:
+        pass  # Column already exists — that's expected on every restart after first
+
+    # 3 ── Startup tasks: cleanup stuck docs + owner backfill
+    try:
+        async with db.engine.begin() as conn:
+            # Reset any documents stuck in "processing" from a crashed previous run
+            await conn.execute(text(
+                "UPDATE documents SET index_status = 'failed' WHERE index_status = 'processing'"
+            ))
+        log.info("Stuck-document cleanup complete.")
+    except Exception as e:
+        log.warning(f"Stuck-document cleanup failed (non-fatal): {e}")
+
+    try:
+        from .infrastructure.database.repositories import KBMemberRepository
+        from .domain.models import KnowledgeBase, KBMember
+        async with db.session() as session:
+            kbs_result = await session.scalars(select(KnowledgeBase))
+            kbs = list(kbs_result.all())
+            kb_member_repo = KBMemberRepository(KBMember, session)
+            backfilled = 0
+            for kb in kbs:
+                existing = await kb_member_repo.get(kb.id, kb.user_id)
+                if not existing:
+                    await kb_member_repo.create(kb_id=kb.id, user_id=kb.user_id, role="owner")
+                    backfilled += 1
+            # session context manager auto-commits on clean exit
+        log.info(f"Owner backfill complete — {backfilled} KB(s) updated out of {len(kbs)}.")
+    except Exception as e:
+        log.warning(f"Owner backfill failed (non-fatal): {e}")
 
     yield
 
@@ -69,11 +106,12 @@ def create_app() -> FastAPI:
     app.state.vector_store = vector_store  # exposed for per-request factory
 
     # Include routers
-    from .api import auth_router, chat_router, kb_router, documents_router
+    from .api import auth_router, chat_router, kb_router, documents_router, admin_router
     app.include_router(auth_router)
     app.include_router(kb_router)
     app.include_router(documents_router)
     app.include_router(chat_router)
+    app.include_router(admin_router)
 
     # Health check
     @app.get("/health")

@@ -8,7 +8,11 @@
       "Bash(npm run *)",
       "Bash(main.jsx\")",
       "PowerShell(.venv\\\\Scripts\\\\pip install \"openai>=1.0.0\" \"google-generativeai>=0.7.0\" \"boto3>=1.35.0\" --quiet 2>&1)",
-      "Bash(find /mnt/d/Learning/KnowledgeBase -maxdepth 3 -not -path '*/.venv/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -not -path '*/.git/*' 2>/dev/null | sort || ls /mnt/d/Learning/ 2>/dev/null || echo \"Path issue\")"
+      "Bash(find /mnt/d/Learning/KnowledgeBase -maxdepth 3 -not -path '*/.venv/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -not -path '*/.git/*' 2>/dev/null | sort || ls /mnt/d/Learning/ 2>/dev/null || echo \"Path issue\")",
+      "Bash(.venv/Scripts/pip install *)",
+      "Bash(.venvScriptspython.exe -c ' *)",
+      "Bash(python -c ' *)",
+      "PowerShell(cd D:\\\\Learning\\\\KnowledgeBase; $files = @\\('src/domain/models.py','src/infrastructure/database/models.py','src/infrastructure/database/repositories.py','src/shared/rbac.py','src/api/auth.py','src/api/knowledge_base.py','src/api/documents.py','src/api/admin.py','src/api/__init__.py','src/main.py'\\); $ok = $true; foreach \\($f in $files\\) { $result = & .venv\\\\Scripts\\\\python.exe -c \"import ast,sys; ast.parse\\(open\\('$f'\\).read\\(\\)\\); print\\('OK  $f'\\)\" 2>&1; if \\($LASTEXITCODE -ne 0\\) { Write-Host \"ERR $f`: $result\"; $ok = $false } else { Write-Host $result } }; if \\($ok\\) { Write-Host \"`nAll OK\" } else { Write-Host \"`nErrors found\" })"
     ]
   }
 }

@@ -4,6 +4,10 @@ from pydantic_settings import BaseSettings
 from pydantic import field_validator
 
 class AppSettings(BaseSettings):
+    # Encryption (AES-256-GCM for API keys at rest)
+    # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    encryption_key: Optional[str] = None
+
     # JWT
     jwt_secret: str = "dev-secret-change-in-production-12345678901234567890"
     jwt_algorithm: str = "HS256"
@@ -47,6 +51,18 @@ class AppSettings(BaseSettings):
 
     # Embedder
     embedder_model: str = "all-MiniLM-L6-v2"
+
+    # FAISS quantization
+    # QT_8bit  → 4× memory reduction, ~1% recall loss  (recommended)
+    # QT_4bit  → 8× memory reduction, ~3% recall loss
+    # Disable by setting faiss_quantize=false (falls back to IndexFlatL2)
+    faiss_quantize: bool = True
+    faiss_quantize_type: str = "sq8"   # "sq8" | "sq4"
+
+    # Celery — async document indexing workers
+    # Leave empty to fall back to FastAPI BackgroundTasks (no Redis needed).
+    celery_broker_url: str = ""      # e.g. redis://localhost:6379/0
+    celery_result_backend: str = ""  # e.g. redis://localhost:6379/0
 
     # RAG Config
     confidence_threshold: float = 0.5

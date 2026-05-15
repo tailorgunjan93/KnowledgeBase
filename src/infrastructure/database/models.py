@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 from datetime import datetime
 
@@ -13,6 +13,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
+    role = Column(String(10), nullable=False, default="user")  # "user" | "admin"
 
 
 class UserSetting(Base):
@@ -69,3 +70,14 @@ class Message(Base):
     confidence = Column(String(10), nullable=True)
     sources = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class KBMember(Base):
+    """Per-KB role: viewer | editor | owner."""
+    __tablename__ = "kb_members"
+    id = Column(Integer, primary_key=True)
+    kb_id = Column(Integer, ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    role = Column(String(10), nullable=False, default="viewer")  # viewer | editor | owner
+    created_at = Column(DateTime, default=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("kb_id", "user_id", name="uq_kb_member"),)

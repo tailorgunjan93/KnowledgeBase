@@ -3,7 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthPage, Sidebar, SummarizerPage } from './components';
-import { ChatPage, KnowledgeBasePage, SettingsPage } from './pages';
+import { ChatPage, KnowledgeBasePage, SettingsPage, AdminPage } from './pages';
 import { chatAPI } from './api';
 
 function AppContent() {
@@ -75,6 +75,7 @@ function AppContent() {
         {activeTab === 'kb' && <KnowledgeBasePage />}
         {activeTab === 'summarizer' && <SummarizerPage />}
         {activeTab === 'settings' && <SettingsPage user={user} />}
+        {activeTab === 'admin' && <AdminPage />}
       </main>
     </div>
   );

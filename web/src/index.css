@@ -577,7 +577,8 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  overflow: hidden;
+  /* overflow: visible (default) — lets the KB dropdown escape the topbar boundary.
+     Horizontal overflow is clamped by .chat-body below. */
 }
 
 .chat-topbar {
@@ -592,12 +593,17 @@ body {
   border-bottom: 1px solid var(--glass-border);
   flex-shrink: 0;
   gap: var(--space-4);
+  /* z-index keeps the topbar (and its dropdowns) painted above .chat-body,
+     which otherwise stacks on top as a later DOM sibling. */
+  position: relative;
+  z-index: 10;
 }
 
 .chat-body {
   flex: 1;
   padding: var(--space-6) var(--space-8);
   overflow-y: auto;
+  overflow-x: hidden; /* clamp long messages / code blocks horizontally */
   display: flex;
   flex-direction: column;
 }
@@ -711,7 +717,7 @@ body {
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  z-index: 100;
+  z-index: 200;
   display: none;
   overflow: hidden;
 }

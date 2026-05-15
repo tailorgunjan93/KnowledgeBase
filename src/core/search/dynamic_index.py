@@ -22,7 +22,59 @@ try:
 except ImportError:
     BM25Okapi = None
 
-# Singleton for embedding model
+# ── FAISS quantization helpers ────────────────────────────────────────────────
+
+_QT_MAP = {
+    "sq8": lambda: faiss.ScalarQuantizer.QT_8bit,
+    "sq4": lambda: faiss.ScalarQuantizer.QT_4bit,
+}
+
+
+def _make_faiss_index(
+    dim: int,
+    embeddings: "np.ndarray",
+    quantize: bool = True,
+    quantize_type: str = "sq8",
+) -> "faiss.Index":
+    """Return a trained FAISS index for *embeddings*.
+
+    Args:
+        dim:           Vector dimension (384 for all-MiniLM-L6-v2).
+        embeddings:    float32 array of shape (N, dim).
+        quantize:      Use int8 scalar quantization when True.
+        quantize_type: "sq8" (4× reduction) or "sq4" (8× reduction).
+
+    Returns:
+        A populated faiss.Index ready for search.
+    """
+    if faiss is None:
+        raise ImportError("faiss-cpu is required")
+
+    if quantize and embeddings.shape[0] >= 1:
+        qt_fn = _QT_MAP.get(quantize_type, _QT_MAP["sq8"])
+        index = faiss.IndexScalarQuantizer(dim, qt_fn(), faiss.METRIC_L2)
+        # Train on the same vectors we're about to add (learns min/max range per dim)
+        index.train(embeddings)
+        logger.debug(f"Trained SQ{quantize_type[-1].upper()} index on {embeddings.shape[0]} vectors.")
+    else:
+        index = faiss.IndexFlatL2(dim)
+
+    index.add(embeddings)
+    return index
+
+
+def _index_size_kb(index: "faiss.Index", dim: int) -> float:
+    """Estimate memory footprint of the index in KB."""
+    n = index.ntotal
+    if isinstance(index, faiss.IndexFlatL2):
+        return n * dim * 4 / 1024          # float32: 4 bytes/dim
+    # ScalarQuantizer: 1 byte/dim for SQ8, 0.5 for SQ4
+    # We use 1 as a conservative estimate
+    return n * dim * 1 / 1024
+
+
+# ── Singleton for embedding model ─────────────────────────────────────────────
+
 _embedding_model = None
 
 def get_embedding_model():
@@ -126,12 +178,27 @@ class DocumentIndex:
         return chunks
 
     def _build_faiss_index(self):
-        """Build FAISS index from chunks."""
-        model = get_embedding_model()
-        embeddings = model.encode(self.chunks, convert_to_numpy=True, batch_size=32, show_progress_bar=False)
+        """Build FAISS index from chunks.
 
-        self.faiss_index = faiss.IndexFlatL2(self.dimension)
-        self.faiss_index.add(embeddings)
+        Uses int8 scalar quantization by default (4× less memory, ~1% recall loss).
+        Controlled by FAISS_QUANTIZE / FAISS_QUANTIZE_TYPE settings.
+        """
+        from src.core.settings import get_settings
+        settings = get_settings()
+
+        model = get_embedding_model()
+        embeddings = model.encode(
+            self.chunks, convert_to_numpy=True, batch_size=32, show_progress_bar=False
+        ).astype("float32")
+
+        self.faiss_index = _make_faiss_index(
+            self.dimension, embeddings, settings.faiss_quantize, settings.faiss_quantize_type
+        )
+        logger.info(
+            f"FAISS index built: {self.faiss_index.ntotal} vectors, "
+            f"type={'SQ' + settings.faiss_quantize_type[-1].upper() if settings.faiss_quantize else 'FlatL2'}, "
+            f"~{_index_size_kb(self.faiss_index, self.dimension):.0f} KB"
+        )
 
     def _build_bm25_index(self):
         """Build BM25 index from chunks."""

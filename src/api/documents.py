@@ -52,6 +52,7 @@ class SummarizeResponse(BaseModel):
     summary: str
     original_length: int
     summary_length: int
+    key_points: Optional[List[str]] = None
 
 
 @router.get("/kb/{kb_id}/documents", response_model=DocumentListResponse)
@@ -62,9 +63,8 @@ async def list_documents(
     skip: int = 0,
     limit: int = 100
 ):
-    kb_repo = KnowledgeBaseRepository(KnowledgeBase, db)
-    if not await kb_repo.get_by_user_and_id(kb_id, current_user.id):
-        raise NotFoundError("Knowledge base not found")
+    from ..shared.rbac import require_kb_role
+    await require_kb_role(kb_id, "viewer", current_user, db)
 
     repo = DocumentRepository(Document, db)
     docs = await repo.get_by_kb(kb_id, skip=skip, limit=limit)
@@ -97,9 +97,11 @@ async def upload_document(
     db: AsyncSession = Depends(get_db_session)
 ):
     try:
-        kb_repo = KnowledgeBaseRepository(KnowledgeBase, db)
-        if not await kb_repo.get_by_user_and_id(kb_id, current_user.id):
-            return {"detail": "Knowledge base not found", "status": "error"}
+        from ..shared.rbac import require_kb_role
+        try:
+            await require_kb_role(kb_id, "editor", current_user, db)
+        except Exception:
+            return {"detail": "Insufficient access to this knowledge base", "status": "error"}
 
         try:
             file_bytes = await file.read()
@@ -131,8 +133,16 @@ async def upload_document(
             raise ValidationError(f"Database error: {str(db_err)}")
 
         from ..core.settings import get_settings
-        db_url = get_settings().db_url
-        background_tasks.add_task(_process_document_task, doc_id, kb_id, str(file_path), file.filename, db_url)
+        settings = get_settings()
+        db_url = settings.db_url
+
+        if settings.celery_broker_url:
+            # ── Celery path: persistent queue, survives restarts ──────────
+            from src.worker.tasks.indexing import index_document
+            index_document.delay(doc_id, kb_id, str(file_path), file.filename, db_url)
+        else:
+            # ── Fallback path: FastAPI BackgroundTasks (no Redis needed) ──
+            background_tasks.add_task(_process_document_task, doc_id, kb_id, str(file_path), file.filename, db_url)
 
         return {
             "id": doc_id,
@@ -258,11 +268,15 @@ async def delete_document(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
+    from ..shared.rbac import require_kb_role
     repo = DocumentRepository(Document, db)
     doc = await repo.get_by_id(doc_id)
 
-    if not doc or doc.user_id != current_user.id:
+    if not doc:
         raise NotFoundError("Document not found")
+
+    # Require editor+ on the KB (admins bypass)
+    await require_kb_role(doc.kb_id, "editor", current_user, db)
 
     index_path = Path(f"data_storage/indices/{doc_id}")
     if index_path.exists():
@@ -284,11 +298,14 @@ async def get_document_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
+    from ..shared.rbac import require_kb_role
     repo = DocumentRepository(Document, db)
     doc = await repo.get_by_id(doc_id)
- 
-    if not doc or doc.user_id != current_user.id:
+
+    if not doc:
         raise NotFoundError("Document not found")
+
+    await require_kb_role(doc.kb_id, "viewer", current_user, db)
  
     if not doc.file_path:
         raise NotFoundError("File not found on disk")
@@ -330,7 +347,8 @@ async def summarize(
     return SummarizeResponse(
         summary=result["summary"],
         original_length=result["original_length"],
-        summary_length=result["summary_length"]
+        summary_length=result["summary_length"],
+        key_points=result.get("key_points")
     )
 
 async def cleanup_stuck_documents(db: AsyncSession):
@@ -387,5 +405,6 @@ async def summarize_file(
     return SummarizeResponse(
         summary=result["summary"],
         original_length=result["original_length"],
-        summary_length=result["summary_length"]
+        summary_length=result["summary_length"],
+        key_points=result.get("key_points")
     )

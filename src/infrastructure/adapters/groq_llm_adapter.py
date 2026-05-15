@@ -54,6 +54,7 @@ class GroqLLMAdapter:
         return content
 
     def chat_stream(self, messages: list[dict], max_tokens: int = 4096):
+        text_so_far = ""
         try:
             stream = self._client.chat.completions.create(
                 model=self._model,
@@ -63,8 +64,23 @@ class GroqLLMAdapter:
             )
             for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                    delta = chunk.choices[0].delta.content
+                    text_so_far += delta
+                    yield delta
         except Exception as err:
+            # Llama models sometimes try to call tools spontaneously (e.g. when
+            # the prompt contains web URLs).  Groq raises an error when no tools
+            # are registered.  Fall back to a plain non-streaming call so the
+            # user still gets an answer.
+            if "called a tool" in str(err).lower():
+                if not text_so_far:
+                    try:
+                        yield self.chat(messages, max_tokens)
+                        return
+                    except Exception as fallback_err:
+                        raise _groq_error(fallback_err, self._model) from fallback_err
+                # Already streamed some text — stop gracefully rather than crashing.
+                return
             raise _groq_error(err, self._model) from err
 
     def embed(self, text: str) -> list[float]:

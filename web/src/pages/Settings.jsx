@@ -92,7 +92,8 @@ export function SettingsPage({ user }) {
       setCfg(merged);
       const tab = merged.active_provider || 'groq';
       setActiveTab(tab);
-      loadModelsFor(tab, merged[`${tab}_api_key`] || '');
+      const savedKey = merged[`${tab}_api_key`];
+      loadModelsFor(tab, savedKey === '__set__' ? '' : (savedKey || ''));
     } catch { /* silent */ }
   };
 
@@ -129,7 +130,8 @@ export function SettingsPage({ user }) {
     setModels([]);
     setModelsSource('');
     setUseCustomModel(false);
-    loadModelsFor(tab, cfg[`${tab}_api_key`] || '');
+    const savedKey = cfg[`${tab}_api_key`];
+    loadModelsFor(tab, savedKey === '__set__' ? '' : (savedKey || ''));
   };
 
   const set = (key, val) => setCfg(prev => ({ ...prev, [key]: val }));
@@ -163,26 +165,42 @@ export function SettingsPage({ user }) {
   const toggleKey = (k) => setShowKeys(p => ({ ...p, [k]: !p[k] }));
 
   /* ── Shared sub-components ───────────────────────────────── */
-  const KeyInput = ({ field, placeholder }) => (
-    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-      <input
-        type={showKeys[field] ? 'text' : 'password'}
-        value={cfg[field] || ''}
-        onChange={e => set(field, e.target.value)}
-        placeholder={placeholder || ''}
-        style={{ paddingRight: 42 }}
-      />
-      <button type="button" onClick={() => toggleKey(field)} style={{
-        position: 'absolute', right: 12, background: 'none', border: 'none',
-        cursor: 'pointer', color: 'var(--color-text-faint)', display: 'flex', alignItems: 'center',
-      }}>
-        {showKeys[field]
-          ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-        }
-      </button>
-    </div>
-  );
+  const KeyInput = ({ field, placeholder }) => {
+    // "__set__" sentinel: backend confirmed a key is saved but won't send the plaintext
+    const isSaved = cfg[field] === '__set__';
+    return (
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <input
+          type={showKeys[field] && !isSaved ? 'text' : 'password'}
+          value={isSaved ? '' : (cfg[field] || '')}
+          onChange={e => set(field, e.target.value)}
+          placeholder={isSaved ? '••••••••  (saved — type to replace)' : (placeholder || '')}
+          style={{
+            paddingRight: 42,
+            borderColor: isSaved ? 'var(--color-success)' : undefined,
+          }}
+        />
+        {/* Lock icon when saved, show/hide toggle otherwise */}
+        {isSaved ? (
+          <span style={{ position: 'absolute', right: 12, color: 'var(--color-success)', display: 'flex', alignItems: 'center' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </span>
+        ) : (
+          <button type="button" onClick={() => toggleKey(field)} style={{
+            position: 'absolute', right: 12, background: 'none', border: 'none',
+            cursor: 'pointer', color: 'var(--color-text-faint)', display: 'flex', alignItems: 'center',
+          }}>
+            {showKeys[field]
+              ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            }
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const ModelSelect = ({ field }) => {
     const currentVal = cfg[field] || '';

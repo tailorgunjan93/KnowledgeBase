@@ -1,7 +1,7 @@
 from typing import Generic, TypeVar, Type, Optional, List, Sequence
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from .models import Base, User, UserSetting, KnowledgeBase, Document, ChatSession, Message
+from .models import Base, User, UserSetting, KnowledgeBase, Document, ChatSession, Message, KBMember
 
 ModelType = TypeVar("ModelType", bound=Base)
 
@@ -43,6 +43,16 @@ class UserRepository(BaseRepository[User]):
         result = await self.session.execute(select(self.model).where(self.model.email == email))
         return result.scalar_one_or_none()
 
+    async def count(self) -> int:
+        result = await self.session.execute(select(func.count(self.model.id)))
+        return result.scalar_one()
+
+    async def get_all_paginated(self, skip: int = 0, limit: int = 50) -> Sequence[User]:
+        result = await self.session.scalars(
+            select(self.model).order_by(self.model.created_at.asc()).offset(skip).limit(limit)
+        )
+        return result.all()
+
 
 class UserSettingRepository(BaseRepository[UserSetting]):
     async def get_by_user_and_key(self, user_id: int, key: str) -> Optional[UserSetting]:
@@ -67,6 +77,7 @@ class UserSettingRepository(BaseRepository[UserSetting]):
 
 class KnowledgeBaseRepository(BaseRepository[KnowledgeBase]):
     async def get_by_user(self, user_id: int, skip: int = 0, limit: int = 20) -> Sequence[KnowledgeBase]:
+        """Legacy: fetch KBs owned directly by user_id (used for owner backfill)."""
         result = await self.session.scalars(
             select(self.model)
             .where(self.model.user_id == user_id)
@@ -76,23 +87,77 @@ class KnowledgeBaseRepository(BaseRepository[KnowledgeBase]):
         )
         return result.all()
 
+    async def get_by_member(self, user_id: int, skip: int = 0, limit: int = 20) -> Sequence[KnowledgeBase]:
+        """Fetch KBs where user is a member (any role)."""
+        result = await self.session.scalars(
+            select(self.model)
+            .join(KBMember, (KBMember.kb_id == self.model.id) & (KBMember.user_id == user_id))
+            .offset(skip)
+            .limit(limit)
+            .order_by(self.model.created_at.desc())
+        )
+        return result.all()
+
+    async def get_all_kbs(self, skip: int = 0, limit: int = 20) -> Sequence[KnowledgeBase]:
+        """Admin: fetch all KBs."""
+        result = await self.session.scalars(
+            select(self.model)
+            .offset(skip)
+            .limit(limit)
+            .order_by(self.model.created_at.desc())
+        )
+        return result.all()
+
     async def get_by_user_and_id(self, kb_id: int, user_id: int) -> Optional[KnowledgeBase]:
+        """Legacy ownership check — used in documents.py where we do per-ownership guard."""
         result = await self.session.execute(select(self.model).where(
             self.model.id == kb_id,
             self.model.user_id == user_id
         ))
         return result.scalar_one_or_none()
 
+    async def get_by_id_accessible(self, kb_id: int, user_id: int, is_admin: bool = False) -> Optional[KnowledgeBase]:
+        """Fetch KB if user is a member OR is admin."""
+        kb = await self.get_by_id(kb_id)
+        if not kb:
+            return None
+        if is_admin:
+            return kb
+        member_repo = KBMemberRepository(KBMember, self.session)
+        member = await member_repo.get(kb_id, user_id)
+        return kb if member else None
+
     async def count_by_user(self, user_id: int) -> int:
-        result = await self.session.execute(select(func.count(self.model.id)).where(self.model.user_id == user_id))
+        """Count KBs where user is a member."""
+        result = await self.session.execute(
+            select(func.count(self.model.id))
+            .join(KBMember, (KBMember.kb_id == self.model.id) & (KBMember.user_id == user_id))
+        )
         return result.scalar_one()
 
-    async def get_with_counts(self, user_id: int, skip: int = 0, limit: int = 20) -> Sequence[tuple[KnowledgeBase, int]]:
-        """Fetch KBs and their document counts in a single query."""
+    async def count_all(self) -> int:
+        result = await self.session.execute(select(func.count(self.model.id)))
+        return result.scalar_one()
+
+    async def get_with_counts(self, user_id: int, skip: int = 0, limit: int = 20) -> Sequence[tuple]:
+        """Fetch KBs (member-based) with document counts and member's role."""
+        stmt = (
+            select(self.model, func.count(Document.id), KBMember.role)
+            .join(KBMember, (KBMember.kb_id == self.model.id) & (KBMember.user_id == user_id))
+            .outerjoin(Document, self.model.id == Document.kb_id)
+            .group_by(self.model.id, KBMember.role)
+            .offset(skip)
+            .limit(limit)
+            .order_by(self.model.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return result.all()
+
+    async def get_with_counts_admin(self, skip: int = 0, limit: int = 20) -> Sequence[tuple]:
+        """Admin: all KBs with document counts."""
         stmt = (
             select(self.model, func.count(Document.id))
             .outerjoin(Document, self.model.id == Document.kb_id)
-            .where(self.model.user_id == user_id)
             .group_by(self.model.id)
             .offset(skip)
             .limit(limit)
@@ -157,3 +222,35 @@ class MessageRepository(BaseRepository[Message]):
             .order_by(self.model.created_at.asc())
         )
         return result.all()
+
+
+class KBMemberRepository(BaseRepository[KBMember]):
+    async def get(self, kb_id: int, user_id: int) -> Optional[KBMember]:
+        result = await self.session.execute(select(self.model).where(
+            self.model.kb_id == kb_id,
+            self.model.user_id == user_id
+        ))
+        return result.scalar_one_or_none()
+
+    async def list_by_kb(self, kb_id: int) -> Sequence[KBMember]:
+        result = await self.session.scalars(
+            select(self.model)
+            .where(self.model.kb_id == kb_id)
+            .order_by(self.model.created_at.asc())
+        )
+        return result.all()
+
+    async def upsert(self, kb_id: int, user_id: int, role: str) -> KBMember:
+        member = await self.get(kb_id, user_id)
+        if member:
+            member.role = role
+            await self.session.flush()
+            return member
+        return await self.create(kb_id=kb_id, user_id=user_id, role=role)
+
+    async def remove(self, kb_id: int, user_id: int) -> bool:
+        member = await self.get(kb_id, user_id)
+        if member:
+            await self.session.delete(member)
+            return True
+        return False

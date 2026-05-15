@@ -7,6 +7,7 @@ from .deps import get_db_session, get_current_user
 from ..infrastructure.database.repositories import UserRepository, UserSettingRepository
 from ..domain.models import User, UserSetting
 from ..shared.security import hash_password, verify_password, create_access_token
+from ..shared.encryption import encrypt, decrypt, is_sensitive, SENTINEL
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -26,12 +27,14 @@ class UserResponse(BaseModel):
     user_id: int
     username: str
     email: Optional[str] = None
+    role: str = "user"
 
 
 class TokenResponse(BaseModel):
     user_id: int
     username: str
     token: str
+    role: str = "user"
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -41,11 +44,16 @@ async def register(req: SignupRequest, db: AsyncSession = Depends(get_db_session
     if await repo.get_by_username(req.username):
         raise HTTPException(400, "Username already exists")
 
+    # First registered user becomes admin
+    user_count = await repo.count()
+    role = "admin" if user_count == 0 else "user"
+
     email = req.email.strip() if req.email else None
     user = await repo.create(
         username=req.username,
         email=email,
-        password_hash=hash_password(req.password)
+        password_hash=hash_password(req.password),
+        role=role
     )
 
     # Create default settings
@@ -64,7 +72,7 @@ async def register(req: SignupRequest, db: AsyncSession = Depends(get_db_session
     await db.commit()
     token = create_access_token(user.id)
 
-    return TokenResponse(user_id=user.id, username=user.username, token=token)
+    return TokenResponse(user_id=user.id, username=user.username, token=token, role=user.role)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -77,7 +85,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db_session)):
 
     token = create_access_token(user.id)
 
-    return TokenResponse(user_id=user.id, username=user.username, token=token)
+    return TokenResponse(user_id=user.id, username=user.username, token=token, role=user.role)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -85,7 +93,8 @@ async def get_me(current_user: User = Depends(get_current_user)):
     return UserResponse(
         user_id=current_user.id,
         username=current_user.username,
-        email=current_user.email
+        email=current_user.email,
+        role=getattr(current_user, "role", "user")
     )
 
 
@@ -101,7 +110,15 @@ async def get_settings_endpoint(
 ):
     repo = UserSettingRepository(UserSetting, db)
     settings = await repo.get_all_for_user(current_user.id)
-    return {s.key: s.value for s in settings}
+
+    result: dict = {}
+    for s in settings:
+        if is_sensitive(s.key) and s.value:
+            # Never send the real key to the frontend — return sentinel instead
+            result[s.key] = SENTINEL
+        else:
+            result[s.key] = s.value
+    return result
 
 
 @router.post("/settings")
@@ -111,6 +128,16 @@ async def update_settings(
     db: AsyncSession = Depends(get_db_session)
 ):
     repo = UserSettingRepository(UserSetting, db)
-    await repo.upsert(current_user.id, req.key, req.value)
+
+    if is_sensitive(req.key):
+        # Sentinel means "no change" — frontend echoed back what we sent it
+        if req.value == SENTINEL:
+            return {"status": "ok", "detail": "no_change"}
+        # Encrypt before persisting (empty string clears the key)
+        value_to_store = encrypt(req.value) if req.value else ""
+    else:
+        value_to_store = req.value
+
+    await repo.upsert(current_user.id, req.key, value_to_store)
     await db.commit()
     return {"status": "ok"}

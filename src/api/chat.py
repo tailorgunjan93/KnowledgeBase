@@ -85,9 +85,8 @@ async def create_session(
 
     # Validate kb_id if provided
     if req.kb_id:
-        kb_repo = KnowledgeBaseRepository(KnowledgeBase, db)
-        if not await kb_repo.get_by_user_and_id(req.kb_id, current_user.id):
-            raise HTTPException(404, "Knowledge base not found")
+        from ..shared.rbac import require_kb_role
+        await require_kb_role(req.kb_id, "viewer", current_user, db)
 
     session = await repo.create(
         user_id=current_user.id,
@@ -198,7 +197,16 @@ async def chat(
                 sources_override = None
                 
                 kb_id = req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id
-                
+
+                # Verify KB access if a KB is being used
+                if kb_id:
+                    from ..shared.rbac import require_kb_role as _require_kb_role
+                    try:
+                        await _require_kb_role(kb_id, "viewer", current_user, db)
+                    except Exception:
+                        yield json.dumps({"type": "error", "content": "Access denied to this knowledge base"}) + "\n"
+                        return
+
                 from fastapi.concurrency import run_in_threadpool
 
                 # 2. KB Retrieval
@@ -247,24 +255,36 @@ async def chat(
                             )
                             if results:
                                 context_override = "[KNOWLEDGE BASE CONTEXT]\n" + "\n\n".join([r.get('text', '') for r in results])
-                                sources_override = []
+                                # Deduplicate by doc_id — keep best chunk per document.
+                                # Use faiss_score (0-1 normalized) as the relevance indicator;
+                                # fall back to combined_score for BM25-only hits.
+                                seen_docs: dict = {}
                                 for r in results:
                                     did = str(r.get("doc_id"))
-                                    sources_override.append({
-                                        "type": "kb",
-                                        "title": doc_titles.get(did) or r.get("title") or "Untitled",
-                                        "text": r.get('text', ''),
-                                        "doc_id": did,
-                                        "id": did
-                                    })
+                                    # faiss_score is 1/(1+dist) → already in [0,1]; best for % display
+                                    r_score = r.get("faiss_score") or r.get("combined_score") or 0.0
+                                    if did not in seen_docs or r_score > seen_docs[did]["score"]:
+                                        seen_docs[did] = {
+                                            "type": "kb",
+                                            "title": doc_titles.get(did) or "Untitled",
+                                            "text": r.get("text", ""),
+                                            "doc_id": did,
+                                            "id": did,
+                                            "score": r_score if r_score > 0 else None,
+                                            "metadata": r.get("metadata"),
+                                        }
+                                sources_override = list(seen_docs.values())
 
                 # 3. Web Search
                 if req.enable_web_search:
                     yield json.dumps({"type": "status", "content": "🌐 Searching the web..."}) + "\n"
                     try:
+                        from ..shared.encryption import decrypt
                         settings_repo = UserSettingRepository(UserSetting, db)
                         serper_key_setting = await settings_repo.get_by_user_and_key(current_user.id, "serper_api_key")
-                        final_serper_key = serper_key_setting.value if serper_key_setting else get_settings().serper_api_key
+                        raw_serper_key = serper_key_setting.value if serper_key_setting else None
+                        # Decrypt if stored encrypted (enc:... prefix); pass-through for plaintext
+                        final_serper_key = decrypt(raw_serper_key) if raw_serper_key else get_settings().serper_api_key
                         
                         def _run_web_search_with_key(key):
                             combined = []

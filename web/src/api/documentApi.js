@@ -17,3 +17,9 @@ export const uploadDocument = (kbId, formData, onProgress) =>
 
 export const deleteDocument = (docId) => httpClient.delete(`/api/documents/${docId}`);
 export const searchDocuments = (payload) => httpClient.post('/api/search', payload);
+
+// ── KB Members ────────────────────────────────────────────────────────────────
+export const listKBMembers    = (kbId)                      => httpClient.get(`/api/kb/${kbId}/members`);
+export const addKBMember      = (kbId, username, role)      => httpClient.post(`/api/kb/${kbId}/members`, { username, role });
+export const updateKBMember   = (kbId, userId, role)        => httpClient.put(`/api/kb/${kbId}/members/${userId}`, { role });
+export const removeKBMember   = (kbId, userId)              => httpClient.delete(`/api/kb/${kbId}/members/${userId}`);

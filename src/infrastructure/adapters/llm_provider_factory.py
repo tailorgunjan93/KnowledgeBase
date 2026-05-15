@@ -1,6 +1,7 @@
 """Builds the correct LLM adapter for a user based on their stored settings."""
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.shared.encryption import decrypt, is_sensitive
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,8 @@ async def get_llm_for_user(user_id: int, db: AsyncSession):
     async def _get(key: str, default=None):
         s = await repo.get_by_user_and_key(user_id, key)  # type: ignore[arg-type]
         v = str(s.value).strip() if s and s.value else None
+        if v and is_sensitive(key):
+            v = decrypt(v)  # transparently decrypt AES-256-GCM ciphertext
         return v or default
 
     provider = await _get("active_provider", settings.active_provider or "groq")

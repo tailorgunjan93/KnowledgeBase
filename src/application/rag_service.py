@@ -48,9 +48,10 @@ class SelfCorrectingRAG:
             messages = [
                 {"role": "system", "content": (
                     "You are a helpful AI assistant with access to real-time web search results. "
-                    "The context below contains live web search results fetched for this query. "
+                    "The context below contains live web search results already fetched for this query. "
                     "Use these results to answer the question with current, up-to-date information. "
-                    "Cite the titles or URLs from the results when relevant."
+                    "Cite the titles or URLs from the results when relevant. "
+                    "Do NOT call any tools or functions — all search results are already provided in the context."
                 )},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
             ]
@@ -93,9 +94,10 @@ class SelfCorrectingRAG:
             messages = [
                 {"role": "system", "content": (
                     "You are a helpful AI assistant with access to real-time web search results. "
-                    "The context below contains live web search results fetched for this query. "
+                    "The context below contains live web search results already fetched for this query. "
                     "Use these results to answer the question with current, up-to-date information. "
-                    "Cite the titles or URLs from the results when relevant."
+                    "Cite the titles or URLs from the results when relevant. "
+                    "Do NOT call any tools or functions — all search results are already provided in the context."
                 )},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
             ]
