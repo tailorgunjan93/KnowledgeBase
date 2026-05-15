@@ -17,7 +17,7 @@ def get_logger(name: str) -> logging.Logger:
             def filter(self, record):
                 record.request_id = request_id_var.get()
                 return True
-        
+
         logger.addFilter(RequestIDFilter())
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)

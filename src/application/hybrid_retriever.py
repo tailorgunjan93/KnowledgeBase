@@ -1,5 +1,5 @@
-from src.ports.vector_store_port import VectorStorePort
 from src.infrastructure.adapters.bm25_adapter import BM25Adapter
+from src.ports.vector_store_port import VectorStorePort
 
 
 class HybridRetriever:

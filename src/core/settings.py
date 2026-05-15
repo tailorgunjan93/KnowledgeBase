@@ -1,12 +1,13 @@
 from functools import lru_cache
-from typing import Optional, List
-from pydantic_settings import BaseSettings
+
 from pydantic import field_validator
+from pydantic_settings import BaseSettings
+
 
 class AppSettings(BaseSettings):
     # Encryption (AES-256-GCM for API keys at rest)
     # Generate with: python -c "import secrets; print(secrets.token_hex(32))"
-    encryption_key: Optional[str] = None
+    encryption_key: str | None = None
 
     # JWT
     jwt_secret: str = "dev-secret-change-in-production-12345678901234567890"
@@ -20,30 +21,30 @@ class AppSettings(BaseSettings):
     active_provider: str = "groq"
 
     # Groq
-    groq_api_key: Optional[str] = None
+    groq_api_key: str | None = None
     groq_model: str = "llama-3.1-8b-instant"
     summarizer_model: str = "llama-3.1-8b-instant"
 
     # OpenAI
-    openai_api_key: Optional[str] = None
+    openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
 
     # Google Gemini
-    gemini_api_key: Optional[str] = None
+    gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash"
 
     # NVIDIA NIM
-    nvidia_api_key: Optional[str] = None
+    nvidia_api_key: str | None = None
     nvidia_model: str = "meta/llama-3.1-8b-instruct"
 
     # AWS Bedrock
-    aws_access_key_id: Optional[str] = None
-    aws_secret_access_key: Optional[str] = None
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
     aws_region: str = "us-east-1"
     aws_model: str = "anthropic.claude-3-haiku-20240307-v1:0"
 
     # Serper (Google Search API)
-    serper_api_key: Optional[str] = None
+    serper_api_key: str | None = None
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -73,11 +74,11 @@ class AppSettings(BaseSettings):
     app_name: str = "Knowledge Base API"
     debug: bool = False
     log_level: str = "INFO"
-    cors_origins: List[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = ["http://localhost:3000"]
 
     @field_validator("cors_origins", mode="before")
     @classmethod
-    def parse_cors_origins(cls, v: str | List[str]) -> List[str]:
+    def parse_cors_origins(cls, v: str | list[str]) -> list[str]:
         """Parse comma-separated CORS origins from .env file."""
         if isinstance(v, str):
             return [item.strip() for item in v.split(",") if item.strip()]

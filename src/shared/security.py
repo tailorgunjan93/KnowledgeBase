@@ -1,7 +1,8 @@
+from datetime import datetime, timedelta
+from typing import Any
+
 import bcrypt
 import jwt
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
 
 from .config import get_settings
 
@@ -22,7 +23,7 @@ def verify_password(password: str, hashed: str) -> bool:
     )
 
 
-def create_access_token(user_id: int, data: Dict[str, Any] = None) -> str:
+def create_access_token(user_id: int, data: dict[str, Any] = None) -> str:
     settings = get_settings()
     payload = {
         "user_id": user_id,
@@ -32,7 +33,7 @@ def create_access_token(user_id: int, data: Dict[str, Any] = None) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
+def decode_access_token(token: str) -> dict[str, Any] | None:
     settings = get_settings()
     try:
         payload = jwt.decode(

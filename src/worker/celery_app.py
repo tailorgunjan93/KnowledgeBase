@@ -8,6 +8,7 @@ If ``CELERY_BROKER_URL`` is not set (empty string), the upload endpoint falls
 back to FastAPI BackgroundTasks, so no Redis is needed for local dev.
 """
 from celery import Celery
+
 from src.core.settings import get_settings
 
 

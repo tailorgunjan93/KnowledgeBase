@@ -1,13 +1,14 @@
 """Per-document FAISS index manager for dynamic search."""
 
-from typing import List, Dict, Any, Optional, Tuple
-import numpy as np
-import os
+import logging
 import pickle
 import shutil
-from pathlib import Path
-import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
 from .reranker import CrossEncoderReranker
 
 logger = logging.getLogger(__name__)
@@ -80,8 +81,8 @@ _embedding_model = None
 def get_embedding_model():
     global _embedding_model
     if _embedding_model is None:
-        from sentence_transformers import SentenceTransformer
         import torch
+        from sentence_transformers import SentenceTransformer
         device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Loading embedding model on {device}...")
         _embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device=device)
@@ -106,10 +107,10 @@ class DocumentIndex:
 
         self.faiss_index = None
         self.bm25_index = None
-        self.chunks: List[str] = []
-        self.chunk_ids: List[str] = []
+        self.chunks: list[str] = []
+        self.chunk_ids: list[str] = []
 
-    def build(self, text: str, pages: List[Dict[str, Any]] = None) -> bool:
+    def build(self, text: str, pages: list[dict[str, Any]] = None) -> bool:
         """Build indices for document text."""
         if faiss is None or BM25Okapi is None:
             raise ImportError("faiss-cpu and rank-bm25 required")
@@ -147,15 +148,15 @@ class DocumentIndex:
             logger.error(f"Failed to build indices: {e}")
             return False
 
-    def _chunk_text(self, pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _chunk_text(self, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Split text into overlapping chunks while preserving page metadata."""
         chunks = []
-        
+
         for page_data in pages:
             page_num = page_data.get("page", 1)
             text = page_data.get("text", "")
             words = text.split()
-            
+
             if not words:
                 continue
 
@@ -174,7 +175,7 @@ class DocumentIndex:
         if not chunks:
             # Fallback for empty/unstructured text
             return [{"text": "", "metadata": {"page": 1}}]
-            
+
         return chunks
 
     def _build_faiss_index(self):
@@ -223,11 +224,11 @@ class DocumentIndex:
         if self.bm25_index:
             with open(self.index_dir / "bm25.pkl", "wb") as f:
                 pickle.dump(self.bm25_index, f)
-        
+
         # Save chunks and metadata
         with open(self.index_dir / "chunks.pkl", "wb") as f:
             pickle.dump({
-                "chunks": self.chunks, 
+                "chunks": self.chunks,
                 "chunk_ids": self.chunk_ids,
                 "chunk_metadata": getattr(self, "chunk_metadata", [None] * len(self.chunks))
             }, f)
@@ -250,7 +251,7 @@ class DocumentIndex:
                     self.chunks = data["chunks"]
                     self.chunk_ids = data["chunk_ids"]
                     self.chunk_metadata = data.get("chunk_metadata", [None] * len(self.chunks))
-            
+
             # Validate consistency: if BM25 index exists but chunks are missing or empty, discard BM25
             if self.bm25_index and (not self.chunks or not self.chunk_ids):
                 logger.warning(f"Document {self.document_id}: BM25 index exists but chunks are missing. Discarding BM25.")
@@ -263,7 +264,7 @@ class DocumentIndex:
 
     def search(
         self, query_embedding: np.ndarray, query_text: str, k: int = 5
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Search this document's index."""
         import sys
         print(f"DEBUG DocumentIndex.search: doc_id={self.document_id}, len(chunks)={len(self.chunks)}, len(chunk_ids)={len(self.chunk_ids)}, faiss_exists={self.faiss_index is not None}, bm25_exists={self.bm25_index is not None}", file=sys.stderr)
@@ -281,7 +282,7 @@ class DocumentIndex:
             # Safety check before accessing [0]
             if len(distances) == 0 or len(indices) == 0 or len(distances[0]) == 0 or len(indices[0]) == 0:
                 return results
-                
+
             for dist, idx in zip(distances[0], indices[0]):
                 if 0 <= idx < len(self.chunks) and 0 <= idx < len(self.chunk_ids):
                     results.append(
@@ -337,20 +338,20 @@ class DynamicSearchEngine:
     def __init__(self, base_path: str = "data_storage/indices"):
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
-        self.embedding_cache: Dict[str, np.ndarray] = {}
+        self.embedding_cache: dict[str, np.ndarray] = {}
         self.reranker = CrossEncoderReranker()
 
     def search(
-        self, 
-        query: str, 
-        document_ids: List[int], 
-        top_k: int = 5, 
+        self,
+        query: str,
+        document_ids: list[int],
+        top_k: int = 5,
         use_reranker: bool = True,
-        hyde_query: Optional[str] = None,
-        expanded_queries: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        hyde_query: str | None = None,
+        expanded_queries: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """Search across multiple document indices with optional re-ranking, HyDE, and Query Expansion."""
-        
+
         # 1. Handle Query Expansion (Multi-query search)
         if expanded_queries and len(expanded_queries) > 0:
             logger.info(f"Performing expanded search with {len(expanded_queries)} queries...")
@@ -359,10 +360,10 @@ class DynamicSearchEngine:
                 # Recursively call search for each variation but WITHOUT expansion to avoid infinite loop
                 res = self.search(q, document_ids, top_k=top_k*2, use_reranker=False, hyde_query=hyde_query)
                 all_expanded_results.extend(res)
-            
+
             # Fuse results using RRF
             fused_results = self._rrf_fusion(all_expanded_results)
-            
+
             # Apply re-ranking on fused results if requested
             if use_reranker and fused_results:
                 return self.reranker.rerank(query, fused_results, top_k=top_k)
@@ -395,7 +396,7 @@ class DynamicSearchEngine:
 
         # Remove duplicates and fuse scores (FAISS + BM25)
         fused_results = self._rrf_fusion(all_results)
-        
+
         # Apply re-ranking layer
         if use_reranker and fused_results:
             logger.info(f"Re-ranking {len(fused_results)} candidates for query: {query[:50]}...")
@@ -405,7 +406,7 @@ class DynamicSearchEngine:
 
     def _search_document(
         self, doc_id: int, query_embedding: np.ndarray, query_text: str, k: int
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Search a single document index."""
         index = DocumentIndex(doc_id, str(self.base_path))
         if index.load():
@@ -428,15 +429,15 @@ class DynamicSearchEngine:
         self.embedding_cache[cache_key] = embedding
         return embedding
 
-    def _rrf_fusion(self, results: List[Dict], k: int = 60) -> List[Dict]:
+    def _rrf_fusion(self, results: list[dict], k: int = 60) -> list[dict]:
         """Reciprocal Rank Fusion combining FAISS and BM25 results."""
         import sys
         print(f"DEBUG _rrf_fusion: input results count={len(results)}", file=sys.stderr)
         for i, r in enumerate(results):
             print(f"  result[{i}]: doc_id={r.get('doc_id')}, chunk_id={r.get('chunk_id')}, source={r.get('source')}", file=sys.stderr)
 
-        scores: Dict[str, float] = {}
-        doc_map: Dict[str, Dict] = {}
+        scores: dict[str, float] = {}
+        doc_map: dict[str, dict] = {}
 
         for rank, result in enumerate(results):
             doc_id = f"{result['doc_id']}_{result['chunk_id']}"
@@ -479,7 +480,7 @@ class IndexManager:
         self.base_path = Path(base_path) / str(kb_id)
         self.base_path.mkdir(parents=True, exist_ok=True)
 
-    def create_document_index(self, document_id: int, text: str, pages: List[Dict[str, Any]] = None) -> bool:
+    def create_document_index(self, document_id: int, text: str, pages: list[dict[str, Any]] = None) -> bool:
         """Create index for a new document."""
         index = DocumentIndex(document_id, str(self.base_path.parent))
         success = index.build(text, pages)
@@ -488,20 +489,20 @@ class IndexManager:
         return success
 
     def search_kb(
-        self, 
-        query: str, 
-        document_ids: List[int], 
+        self,
+        query: str,
+        document_ids: list[int],
         top_k: int = 5,
-        hyde_query: Optional[str] = None,
-        expanded_queries: Optional[List[str]] = None
-    ) -> List[Dict]:
+        hyde_query: str | None = None,
+        expanded_queries: list[str] | None = None
+    ) -> list[dict]:
         """Search across all documents in KB."""
         engine = DynamicSearchEngine(str(self.base_path.parent))
         return engine.search(
-            query, 
-            document_ids, 
-            top_k=top_k, 
-            hyde_query=hyde_query, 
+            query,
+            document_ids,
+            top_k=top_k,
+            hyde_query=hyde_query,
             expanded_queries=expanded_queries
         )
 

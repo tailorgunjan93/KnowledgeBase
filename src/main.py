@@ -1,24 +1,23 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
 import sys
 import traceback
+from contextlib import asynccontextmanager
 
-from .core.settings import get_settings
-from .core.logger import get_logger
-from .core.exceptions import KnowledgeBaseError
-from .shared.middleware import setup_middleware
-from .shared.exception_handler import setup_exception_handler
-from .shared.cors import setup_cors
-
-# Infrastructure Adapters
-from .infrastructure.adapters.groq_llm_adapter import GroqLLMAdapter
-from .infrastructure.adapters.faiss_adapter import FAISSAdapter
-from .infrastructure.adapters.sentence_transformer_embedder import SentenceTransformerEmbedder
-from .infrastructure.adapters.sqlalchemy_adapter import SQLAlchemyAdapter
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 # Application Services
 from .application.rag_service import SelfCorrectingRAG
+from .core.exceptions import KnowledgeBaseError
+from .core.logger import get_logger
+from .core.settings import get_settings
+from .infrastructure.adapters.faiss_adapter import FAISSAdapter
+
+# Infrastructure Adapters
+from .infrastructure.adapters.groq_llm_adapter import GroqLLMAdapter
+from .infrastructure.adapters.sentence_transformer_embedder import SentenceTransformerEmbedder
+from .shared.cors import setup_cors
+from .shared.exception_handler import setup_exception_handler
+from .shared.middleware import setup_middleware
 
 log = get_logger(__name__)
 
@@ -28,8 +27,9 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     log.info(f"Starting {settings.app_name}...")
 
+    from sqlalchemy import select, text
+
     from .infrastructure.database.database import Database
-    from sqlalchemy import text, select
     db = Database(settings.db_url)
 
     # 1 ── Create all tables (idempotent)
@@ -58,8 +58,8 @@ async def lifespan(app: FastAPI):
         log.warning(f"Stuck-document cleanup failed (non-fatal): {e}")
 
     try:
+        from .domain.models import KBMember, KnowledgeBase
         from .infrastructure.database.repositories import KBMemberRepository
-        from .domain.models import KnowledgeBase, KBMember
         async with db.session() as session:
             kbs_result = await session.scalars(select(KnowledgeBase))
             kbs = list(kbs_result.all())
@@ -106,7 +106,7 @@ def create_app() -> FastAPI:
     app.state.vector_store = vector_store  # exposed for per-request factory
 
     # Include routers
-    from .api import auth_router, chat_router, kb_router, documents_router, admin_router
+    from .api import admin_router, auth_router, chat_router, documents_router, kb_router
     app.include_router(auth_router)
     app.include_router(kb_router)
     app.include_router(documents_router)
@@ -124,7 +124,7 @@ def create_app() -> FastAPI:
     async def log_exceptions(request: Request, call_next):
         try:
             return await call_next(request)
-        except Exception as e:
+        except Exception:
             print("\n=== UNHANDLED EXCEPTION ===", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
             print("=== END ===\n", file=sys.stderr)

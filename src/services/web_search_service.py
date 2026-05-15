@@ -1,8 +1,6 @@
-from typing import List, Dict, Any
-from dataclasses import dataclass
-from functools import lru_cache
-import time
 import logging
+import time
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +45,7 @@ class WebSearchService:
     def __init__(self):
         self.circuit_breaker = CircuitBreaker()
 
-    def search(self, query: str, max_results: int = 5) -> List[SearchResult]:
+    def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
         try:
             results = self.circuit_breaker.call(self._do_search, query, max_results)
             return results
@@ -55,7 +53,7 @@ class WebSearchService:
             logger.error(f"Web search failed: {e}")
             return []
 
-    def _do_search(self, query: str, max_results: int) -> List[SearchResult]:
+    def _do_search(self, query: str, max_results: int) -> list[SearchResult]:
         from duckduckgo_search import DDGS
 
         with DDGS() as ddgs:

@@ -1,8 +1,8 @@
 """Ollama local LLM service — free alternative when no cloud API subscription."""
 
-from typing import Optional, List
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
+
 import httpx
 
 from ..shared.config import get_settings
@@ -22,18 +22,18 @@ class OllamaService:
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        model: Optional[str] = None,
+        base_url: str | None = None,
+        model: str | None = None,
     ):
         settings = get_settings()
         self.base_url = (base_url or settings.ollama_base_url).rstrip("/")
         self.model = model or settings.ollama_model
-        self._available: Optional[bool] = None
+        self._available: bool | None = None
 
     def chat_completion(
         self,
-        messages: List[ChatMessage],
-        model: Optional[str] = None,
+        messages: list[ChatMessage],
+        model: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 1024,
     ) -> str:
@@ -83,7 +83,7 @@ class OllamaService:
         """Ollama doesn't need configuration — just needs to be running."""
         return self.is_available()
 
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         """List locally available Ollama models."""
         try:
             with httpx.Client(timeout=5.0) as client:

@@ -1,7 +1,8 @@
-from typing import List, Dict, Any, Optional
+from typing import Any
+
+from src.core.logger import get_logger
 from src.ports.llm_port import LLMPort
 from src.ports.vector_store_port import VectorStorePort
-from src.core.logger import get_logger
 
 log = get_logger(__name__)
 
@@ -23,7 +24,7 @@ class SelfCorrectingRAG:
         self._confidence_threshold = confidence_threshold
         self._max_retries = max_retries
 
-    def answer(self, query: str, context_override: Optional[str] = None, sources_override: Optional[List[Dict]] = None) -> Dict[str, Any]:
+    def answer(self, query: str, context_override: str | None = None, sources_override: list[dict] | None = None) -> dict[str, Any]:
         """Main entry point to get an answer for a query."""
         log.info(f"RAG query started: {query}")
 
@@ -73,7 +74,7 @@ class SelfCorrectingRAG:
             "sources": sources,
         }
 
-    def answer_stream(self, query: str, context_override: Optional[str] = None, sources_override: Optional[List[Dict]] = None):
+    def answer_stream(self, query: str, context_override: str | None = None, sources_override: list[dict] | None = None):
         """Streaming version of answer."""
         # 1. Retrieval (same as answer)
         if context_override is not None:

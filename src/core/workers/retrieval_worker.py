@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from ..workers import Worker, Task, TaskResult, WorkerType
 from ..retrieval.hybrid_retriever import HybridRetriever
+from ..workers import Task, TaskResult, Worker, WorkerType
 
 
 class RetrievalWorker(Worker):

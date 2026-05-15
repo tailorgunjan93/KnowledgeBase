@@ -2,16 +2,19 @@
 
 All routes require global admin role (User.role == "admin").
 """
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from pydantic import BaseModel
-from typing import List, Optional
 
-from .deps import get_db_session, get_current_user
-from ..infrastructure.database.repositories import UserRepository, KnowledgeBaseRepository, DocumentRepository
-from ..domain.models import User, KnowledgeBase, Document
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..domain.models import Document, KnowledgeBase, User
+from ..infrastructure.database.repositories import (
+    KnowledgeBaseRepository,
+    UserRepository,
+)
 from ..shared.rbac import require_admin
+from .deps import get_current_user, get_db_session
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -19,14 +22,14 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 class UserAdminResponse(BaseModel):
     user_id: int
     username: str
-    email: Optional[str] = None
+    email: str | None = None
     role: str
     created_at: str
     is_active: bool
 
 
 class UserListResponse(BaseModel):
-    items: List[UserAdminResponse]
+    items: list[UserAdminResponse]
     total: int
 
 
@@ -111,7 +114,6 @@ async def get_stats(
 
     user_repo = UserRepository(User, db)
     kb_repo = KnowledgeBaseRepository(KnowledgeBase, db)
-    doc_repo = DocumentRepository(Document, db)
 
     total_users = await user_repo.count()
     total_kbs = await kb_repo.count_all()

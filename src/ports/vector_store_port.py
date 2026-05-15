@@ -1,5 +1,6 @@
 from typing import Protocol
 
+
 class VectorStorePort(Protocol):
     """Abstraction over any vector database."""
 

@@ -1,7 +1,9 @@
 """Wrapper around FAISS. All `import faiss` calls live here."""
+import logging
+
 import faiss
 import numpy as np
-import logging
+
 from src.infrastructure.adapters.sentence_transformer_embedder import SentenceTransformerEmbedder
 
 logger = logging.getLogger(__name__)

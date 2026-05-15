@@ -1,6 +1,6 @@
-"""Sentence Transformers Embeddings."""
+﻿"""Sentence Transformers Embeddings."""
 
-from typing import List
+
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
@@ -16,7 +16,7 @@ class EmbeddingsService:
         """Load the embedding model."""
         self.model = SentenceTransformer(self.model_name)
 
-    def encode(self, texts: List[str]) -> np.ndarray:
+    def encode(self, texts: list[str]) -> np.ndarray:
         """Encode texts to embeddings."""
         if self.model is None:
             self.load()

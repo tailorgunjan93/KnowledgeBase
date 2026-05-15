@@ -1,6 +1,7 @@
 """Hybrid Retriever combining FAISS and BM25."""
 
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 import numpy as np
 
 from . import FAISSStore
@@ -12,8 +13,8 @@ class HybridRetriever:
 
     def __init__(
         self,
-        faiss_store: Optional[FAISSStore] = None,
-        bm25_store: Optional[BM25Store] = None,
+        faiss_store: FAISSStore | None = None,
+        bm25_store: BM25Store | None = None,
         alpha: float = 0.5,
     ):
         self.faiss_store = faiss_store
@@ -22,7 +23,7 @@ class HybridRetriever:
 
     def search(
         self, query_embedding: np.ndarray, query_text: str, k: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Search using both methods and combine scores."""
         faiss_results = []
         bm25_results = []
@@ -36,10 +37,10 @@ class HybridRetriever:
         return self._reciprocal_rank_fusion(faiss_results, bm25_results, k)
 
     def _reciprocal_rank_fusion(
-        self, faiss_results: List[Dict], bm25_results: List[Dict], k: int
-    ) -> List[Dict[str, Any]]:
+        self, faiss_results: list[dict], bm25_results: list[dict], k: int
+    ) -> list[dict[str, Any]]:
         """Combine results using Reciprocal Rank Fusion."""
-        scores: Dict[str, float] = {}
+        scores: dict[str, float] = {}
 
         for rank, result in enumerate(faiss_results):
             doc_id = result["doc_id"]
@@ -66,9 +67,9 @@ class HybridRetriever:
 
     def add_documents(
         self,
-        texts: List[str],
+        texts: list[str],
         embeddings: np.ndarray,
-        doc_ids: Optional[List[str]] = None,
+        doc_ids: list[str] | None = None,
     ) -> None:
         """Add documents to both stores."""
         doc_ids = doc_ids or [str(i) for i in range(len(texts))]

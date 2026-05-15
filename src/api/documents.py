@@ -1,28 +1,28 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import Optional, List
-from pydantic import BaseModel
 import shutil
 import uuid
 from pathlib import Path
 
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
 try:
-    from .deps import get_db_session, get_current_user
-    from ..infrastructure.database.repositories import DocumentRepository, KnowledgeBaseRepository
-    from ..domain.models import Document, User, KnowledgeBase
+    from ..domain.models import Document, User
+    from ..infrastructure.database.repositories import DocumentRepository
     from ..shared.exceptions import NotFoundError, ValidationError
+    from .deps import get_current_user, get_db_session
 except (ImportError, ModuleNotFoundError):
     try:
-        from src.api.deps import get_db_session, get_current_user
-        from src.infrastructure.database.repositories import DocumentRepository, KnowledgeBaseRepository
-        from src.domain.models import Document, User, KnowledgeBase
+        from src.api.deps import get_current_user, get_db_session
+        from src.domain.models import Document, User
+        from src.infrastructure.database.repositories import DocumentRepository
         from src.shared.exceptions import NotFoundError, ValidationError
     except (ImportError, ModuleNotFoundError):
-        from api.deps import get_db_session, get_current_user
-        from db.repositories import DocumentRepository, KnowledgeBaseRepository
-        from db.models import Document, User, KnowledgeBase
+        from db.models import Document, User
+        from db.repositories import DocumentRepository
+
+        from api.deps import get_current_user, get_db_session
         from shared.exceptions import NotFoundError, ValidationError
 
 router = APIRouter(prefix="/api", tags=["documents"])
@@ -32,27 +32,27 @@ class DocumentResponse(BaseModel):
     id: int
     kb_id: int
     title: str
-    file_type: Optional[str] = None
+    file_type: str | None = None
     chunk_count: int
     indexed: bool
     index_status: str
 
 
 class DocumentListResponse(BaseModel):
-    items: List[DocumentResponse]
+    items: list[DocumentResponse]
     total: int
 
 
 class SummarizeRequest(BaseModel):
     text: str
-    max_length: Optional[int] = 500
+    max_length: int | None = 500
 
 
 class SummarizeResponse(BaseModel):
     summary: str
     original_length: int
     summary_length: int
-    key_points: Optional[List[str]] = None
+    key_points: list[str] | None = None
 
 
 @router.get("/kb/{kb_id}/documents", response_model=DocumentListResponse)
@@ -86,7 +86,6 @@ async def list_documents(
     )
 
 
-import concurrent.futures
 
 @router.post("/kb/{kb_id}/documents")
 async def upload_document(
@@ -159,22 +158,22 @@ async def upload_document(
 
 async def _process_document_task(doc_id: int, kb_id: int, file_path_str: str, filename: str, db_url: str):
     """Background task: extract text, then index document, then update DB status."""
-    from ..infrastructure.database.database import Database
     from ..core.search.dynamic_index import IndexManager
+    from ..infrastructure.database.database import Database
 
     file_path = Path(file_path_str)
-    
+
     try:
         from fastapi.concurrency import run_in_threadpool
         print(f"BG_TASK: Starting extraction for doc {doc_id} ({filename})...")
         extraction_result = await run_in_threadpool(_extract_file_content_sync, file_path, filename)
         content = extraction_result["text"]
         pages = extraction_result["pages"]
-        
+
         if content.startswith("Error"):
             print(f"BG_TASK ERROR: Extraction failed for doc {doc_id}: {content}")
             raise Exception(content)
-        
+
         print(f"BG_TASK: Extraction complete for doc {doc_id}. Length: {len(content)} chars, {len(pages)} pages.")
 
         bg_db = Database(db_url)
@@ -197,7 +196,7 @@ async def _process_document_task(doc_id: int, kb_id: int, file_path_str: str, fi
                 chunk_count = len(content.split()) // 250 if content else 0
                 doc_obj.chunk_count = max(chunk_count, 1) if success else 0
             await session.commit()
-            
+
     except Exception as e:
         print(f"DEBUG background processing error for doc {doc_id}: {e}")
         try:
@@ -250,7 +249,7 @@ def _extract_file_content_sync(file_path: Path, filename: str) -> dict:
         else:
             full_text = file_path.read_text(encoding="utf-8", errors="ignore")
             pages = [{"page": 1, "text": full_text}]
-        
+
         return {"text": full_text, "pages": pages}
     except Exception as e:
         err = f"Error extracting content: {str(e)}"
@@ -291,7 +290,7 @@ async def delete_document(
     await db.commit()
 
     return {"status": "deleted", "id": doc_id}
- 
+
 @router.get("/documents/{doc_id}/file")
 async def get_document_file(
     doc_id: int,
@@ -306,14 +305,14 @@ async def get_document_file(
         raise NotFoundError("Document not found")
 
     await require_kb_role(doc.kb_id, "viewer", current_user, db)
- 
+
     if not doc.file_path:
         raise NotFoundError("File not found on disk")
- 
+
     file_path = Path(doc.file_path)
     if not file_path.exists():
         raise NotFoundError("File not found on disk")
- 
+
     return FileResponse(
         path=file_path,
         filename=doc.title or f"document_{doc_id}",
@@ -327,9 +326,10 @@ async def summarize(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
+    from fastapi.concurrency import run_in_threadpool
+
     from ..core.services.summarizer import Summarizer
     from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
-    from fastapi.concurrency import run_in_threadpool
 
     try:
         llm = await get_llm_for_user(current_user.id, db)  # type: ignore[arg-type]
@@ -352,8 +352,9 @@ async def summarize(
     )
 
 async def cleanup_stuck_documents(db: AsyncSession):
-    from ..domain.models import Document
     from sqlalchemy import update
+
+    from ..domain.models import Document
     # Bulk update all stuck documents to 'failed' status
     await db.execute(
         update(Document)
@@ -369,9 +370,10 @@ async def summarize_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session)
 ):
+    from fastapi.concurrency import run_in_threadpool
+
     from ..core.services.summarizer import Summarizer
     from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
-    from fastapi.concurrency import run_in_threadpool
 
     try:
         llm = await get_llm_for_user(current_user.id, db)  # type: ignore[arg-type]
@@ -398,7 +400,7 @@ async def summarize_file(
     result = await run_in_threadpool(
         summarizer.summarize_text_with_llm, content, llm, max_length
     )
-    
+
     if "error" in result:
         raise ValidationError(result["error"])
 

@@ -1,8 +1,8 @@
 """Document summarization module with LLM provider fallback."""
 
-from typing import List, Dict, Any, Optional
-import os
 import logging
+import os
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 class Summarizer:
     """Document summarization using LLM (Groq or local Ollama)."""
 
-    def __init__(self, model: Optional[str] = None):
+    def __init__(self, model: str | None = None):
         from ...shared.config import get_settings
         settings = get_settings()
         # Safely get model from settings or fallback
@@ -20,7 +20,7 @@ class Summarizer:
 
     def summarize_text(
         self, text: str, api_key: str = None, max_length: int = 500
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Summarize raw text using best available LLM provider (legacy path)."""
         original_len = len(text)
         try:
@@ -41,7 +41,7 @@ class Summarizer:
 
     def summarize_text_with_llm(
         self, text: str, llm, max_length: int = 500
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Summarize using an injected LLM adapter (supports all providers)."""
         original_len = len(text)
         try:
@@ -95,21 +95,21 @@ class Summarizer:
     def _summarize_large_text(self, text: str, api_key: str, max_length: int) -> str:
         """Handle large text by summarizing chunks in parallel."""
         from concurrent.futures import ThreadPoolExecutor
-        
+
         # Split into chunks
         chunks = [text[i:i + self.max_chunk_chars] for i in range(0, len(text), self.max_chunk_chars)]
         # Limit chunks to prevent excessive API calls
         chunks = chunks[:15] # Max 180k chars (roughly 45k tokens)
-        
+
         logger.info(f"Summarizing {len(chunks)} chunks in parallel (max_workers={self.max_workers})...")
-        
+
         def summarize_chunk(chunk):
             chunk_prompt = f"Provide a brief, 2-paragraph technical summary of this document section:\n\n{chunk}"
             return self._generate_summary(chunk_prompt, api_key, max_length // 2)
 
         with ThreadPoolExecutor(max_workers=min(len(chunks), self.max_workers)) as executor:
             chunk_summaries = list(executor.map(summarize_chunk, chunks))
-        
+
         # Final combined summary
         combined_text = "\n\n".join(chunk_summaries)
         final_prompt = (
@@ -120,7 +120,7 @@ class Summarizer:
         return self._generate_summary(final_prompt, api_key, max_length)
 
     def _generate_summary(
-        self, text: str, api_key: Optional[str], max_length: int
+        self, text: str, api_key: str | None, max_length: int
     ) -> str:
         """Generate summary using the best available LLM."""
         import sys
@@ -151,7 +151,7 @@ class Summarizer:
             "No LLM provider available. Set GROQ_API_KEY or install Ollama."
         )
 
-    def _summarize_with_groq(self, prompt: str, api_key: Optional[str]) -> str:
+    def _summarize_with_groq(self, prompt: str, api_key: str | None) -> str:
         """Summarize using Groq cloud LLM."""
         resolved_key = api_key or os.getenv("GROQ_API_KEY", "")
         if not resolved_key:
@@ -163,8 +163,8 @@ class Summarizer:
 
         for attempt in range(max_retries):
             try:
-                from langchain_groq import ChatGroq
                 from langchain_core.messages import HumanMessage, SystemMessage
+                from langchain_groq import ChatGroq
 
                 model_name = self.model or "llama-3.1-8b-instant"
                 llm = ChatGroq(
@@ -184,10 +184,10 @@ class Summarizer:
                     time.sleep(retry_delay)
                     retry_delay *= 2
                     continue
-                
+
                 logger.warning(f"LangChain Groq failed: {lc_err}")
                 # Fallback to direct Groq SDK
-                from ...services.groq_service import GroqService, ChatMessage
+                from ...services.groq_service import ChatMessage, GroqService
                 gs = GroqService(api_key=resolved_key)
                 return gs.chat_completion(
                     [ChatMessage(role="user", content=prompt)]
@@ -195,7 +195,7 @@ class Summarizer:
 
     def _summarize_with_ollama(self, prompt: str) -> str:
         """Summarize using local Ollama LLM (free)."""
-        from ...services.ollama_service import OllamaService, ChatMessage
+        from ...services.ollama_service import ChatMessage, OllamaService
 
         svc = OllamaService()
         if not svc.is_available():
@@ -209,21 +209,24 @@ class Summarizer:
 
     def summarize_document(
         self, document_id: int, content: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Summarize a document."""
         return self.summarize_text(content)
 
-    def _extract_key_points(self, summary: str) -> List[str]:
+    def _extract_key_points(self, summary: str) -> list[str]:
         """Extract key points from summary."""
         lines = summary.split("\n")
         key_points = []
 
-        for line in lines:
-            line = line.strip()
-            line = line.lstrip("-*•").lstrip("0123456789.").strip()
-            if line and len(line) > 20:
-                key_points.append(line)
+        # Only attempt bullet/numbered-list parsing when the summary has multiple lines
+        if len(lines) > 1:
+            for line in lines:
+                line = line.strip()
+                line = line.lstrip("-*•").lstrip("0123456789.").strip()
+                if line and len(line) > 20:
+                    key_points.append(line)
 
+        # Fallback: plain-prose input (single line) or no structured points found
         if not key_points:
             sentences = summary.split(".")
             for sentence in sentences[:5]:
@@ -241,7 +244,7 @@ class ChunkProcessor:
         self.chunk_size = chunk_size
         self.overlap = overlap
 
-    def chunk_text(self, text: str) -> List[Dict[str, Any]]:
+    def chunk_text(self, text: str) -> list[dict[str, Any]]:
         """Split text into overlapping chunks with metadata."""
         words = text.split()
         chunks = []
@@ -262,12 +265,12 @@ class ChunkProcessor:
 
         return chunks
 
-    def chunk_file(self, file_path: str) -> List[Dict[str, Any]]:
+    def chunk_file(self, file_path: str) -> list[dict[str, Any]]:
         """Chunk a file based on its type."""
         ext = os.path.splitext(file_path)[1].lower()
 
         if ext == ".txt":
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 text = f.read()
         elif ext == ".pdf":
             try:

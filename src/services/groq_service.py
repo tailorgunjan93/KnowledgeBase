@@ -1,8 +1,8 @@
-from typing import Optional, List, Dict, Any
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 
-from groq import Groq, RateLimitError as GroqRateLimitError
+from groq import Groq
+from groq import RateLimitError as GroqRateLimitError
 
 from ..shared.config import get_settings
 from ..shared.exceptions import ExternalServiceError, RateLimitError
@@ -17,7 +17,7 @@ class ChatMessage:
 
 
 class GroqService:
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         settings = get_settings()
         self.api_key = api_key or settings.groq_api_key
         self.model = settings.groq_model
@@ -25,8 +25,8 @@ class GroqService:
 
     def chat_completion(
         self,
-        messages: List[ChatMessage],
-        model: Optional[str] = None,
+        messages: list[ChatMessage],
+        model: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 1024
     ) -> str:

@@ -1,13 +1,13 @@
-from fastapi import Depends, HTTPException, Header
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional, AsyncGenerator
+from collections.abc import AsyncGenerator
 
+from fastapi import Depends, Header, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..core.settings import get_settings
+from ..domain.models import User, UserSetting
 from ..infrastructure.database.database import Database
 from ..infrastructure.database.repositories import UserRepository, UserSettingRepository
-from ..domain.models import User, UserSetting
 from ..shared.security import decode_access_token
-from ..core.settings import get_settings
-
 
 _db_instance = None
 
@@ -24,7 +24,7 @@ async def get_db_session(db: Database = Depends(get_database)) -> AsyncGenerator
 
 
 async def get_current_user(
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
     db: AsyncSession = Depends(get_db_session)
 ) -> User:
     if not authorization:

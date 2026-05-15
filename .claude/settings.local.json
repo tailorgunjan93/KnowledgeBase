@@ -14,7 +14,11 @@
       "Bash(python -c ' *)",
       "PowerShell(cd D:\\\\Learning\\\\KnowledgeBase; $files = @\\('src/domain/models.py','src/infrastructure/database/models.py','src/infrastructure/database/repositories.py','src/shared/rbac.py','src/api/auth.py','src/api/knowledge_base.py','src/api/documents.py','src/api/admin.py','src/api/__init__.py','src/main.py'\\); $ok = $true; foreach \\($f in $files\\) { $result = & .venv\\\\Scripts\\\\python.exe -c \"import ast,sys; ast.parse\\(open\\('$f'\\).read\\(\\)\\); print\\('OK  $f'\\)\" 2>&1; if \\($LASTEXITCODE -ne 0\\) { Write-Host \"ERR $f`: $result\"; $ok = $false } else { Write-Host $result } }; if \\($ok\\) { Write-Host \"`nAll OK\" } else { Write-Host \"`nErrors found\" })",
       "mcp__Claude_Preview__preview_start",
-      "Bash(python -c \"import sqlite3; conn = sqlite3.connect\\('data_storage/knowledgebase.db'\\); rows = conn.execute\\('SELECT id, username, role FROM users LIMIT 5'\\).fetchall\\(\\); print\\(rows\\)\")"
+      "Bash(python -c \"import sqlite3; conn = sqlite3.connect\\('data_storage/knowledgebase.db'\\); rows = conn.execute\\('SELECT id, username, role FROM users LIMIT 5'\\).fetchall\\(\\); print\\(rows\\)\")",
+      "Bash(python -m ruff check src/)",
+      "PowerShell(cd \"D:\\\\Learning\\\\KnowledgeBase\"; .venv\\\\Scripts\\\\ruff.exe check src/ 2>&1 | Where-Object { $_ -notmatch \"^warning:|^  -\" })",
+      "Bash(python3 -m pytest tests/ -v --tb=short)",
+      "PowerShell(cd \"D:\\\\Learning\\\\KnowledgeBase\"; $env:PYTHONPATH = \"D:\\\\Learning\\\\KnowledgeBase\"; & \"C:\\\\Users\\\\tailo\\\\AppData\\\\Local\\\\Packages\\\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\\\LocalCache\\\\local-packages\\\\Python311\\\\Scripts\\\\pytest.exe\" tests/ -v --tb=short 2>&1)"
     ]
   }
 }

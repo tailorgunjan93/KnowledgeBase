@@ -1,9 +1,9 @@
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
 
 
-def setup_cors(app: FastAPI, origins: List[str]) -> None:
+def setup_cors(app: FastAPI, origins: list[str]) -> None:
     """Configure CORS with explicit origin whitelist."""
     if not origins:
         origins = ["http://localhost:3000"]  # Safe default for development

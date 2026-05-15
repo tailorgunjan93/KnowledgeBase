@@ -1,17 +1,20 @@
-from typing import Generic, TypeVar, Type, Optional, List, Sequence
+from collections.abc import Sequence
+from typing import Generic, TypeVar
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from .models import Base, User, UserSetting, KnowledgeBase, Document, ChatSession, Message, KBMember
+
+from .models import Base, ChatSession, Document, KBMember, KnowledgeBase, Message, User, UserSetting
 
 ModelType = TypeVar("ModelType", bound=Base)
 
 
-class BaseRepository(Generic[ModelType]):
-    def __init__(self, model: Type[ModelType], session: AsyncSession):
+class BaseRepository(Generic[ModelType]):  # noqa: UP046
+    def __init__(self, model: type[ModelType], session: AsyncSession):
         self.model = model
         self.session = session
 
-    async def get_by_id(self, id: int) -> Optional[ModelType]:
+    async def get_by_id(self, id: int) -> ModelType | None:
         return await self.session.get(self.model, id)
 
     async def get_all(self, skip: int = 0, limit: int = 100) -> Sequence[ModelType]:
@@ -35,11 +38,11 @@ class BaseRepository(Generic[ModelType]):
 
 
 class UserRepository(BaseRepository[User]):
-    async def get_by_username(self, username: str) -> Optional[User]:
+    async def get_by_username(self, username: str) -> User | None:
         result = await self.session.execute(select(self.model).where(self.model.username == username))
         return result.scalar_one_or_none()
 
-    async def get_by_email(self, email: str) -> Optional[User]:
+    async def get_by_email(self, email: str) -> User | None:
         result = await self.session.execute(select(self.model).where(self.model.email == email))
         return result.scalar_one_or_none()
 
@@ -55,7 +58,7 @@ class UserRepository(BaseRepository[User]):
 
 
 class UserSettingRepository(BaseRepository[UserSetting]):
-    async def get_by_user_and_key(self, user_id: int, key: str) -> Optional[UserSetting]:
+    async def get_by_user_and_key(self, user_id: int, key: str) -> UserSetting | None:
         result = await self.session.execute(select(self.model).where(
             self.model.user_id == user_id,
             self.model.key == key
@@ -108,7 +111,7 @@ class KnowledgeBaseRepository(BaseRepository[KnowledgeBase]):
         )
         return result.all()
 
-    async def get_by_user_and_id(self, kb_id: int, user_id: int) -> Optional[KnowledgeBase]:
+    async def get_by_user_and_id(self, kb_id: int, user_id: int) -> KnowledgeBase | None:
         """Legacy ownership check — used in documents.py where we do per-ownership guard."""
         result = await self.session.execute(select(self.model).where(
             self.model.id == kb_id,
@@ -116,7 +119,7 @@ class KnowledgeBaseRepository(BaseRepository[KnowledgeBase]):
         ))
         return result.scalar_one_or_none()
 
-    async def get_by_id_accessible(self, kb_id: int, user_id: int, is_admin: bool = False) -> Optional[KnowledgeBase]:
+    async def get_by_id_accessible(self, kb_id: int, user_id: int, is_admin: bool = False) -> KnowledgeBase | None:
         """Fetch KB if user is a member OR is admin."""
         kb = await self.get_by_id(kb_id)
         if not kb:
@@ -181,14 +184,14 @@ class DocumentRepository(BaseRepository[Document]):
     async def get_indexed_count(self, kb_id: int) -> int:
         result = await self.session.execute(select(func.count(self.model.id)).where(
             self.model.kb_id == kb_id,
-            self.model.indexed == True
+            self.model.indexed.is_(True),
         ))
         return result.scalar_one()
 
     async def get_pending_indexing(self, kb_id: int) -> Sequence[Document]:
         result = await self.session.scalars(select(self.model).where(
             self.model.kb_id == kb_id,
-            self.model.indexed == False
+            self.model.indexed.is_(False),
         ))
         return result.all()
 
@@ -204,7 +207,7 @@ class ChatSessionRepository(BaseRepository[ChatSession]):
         )
         return result.all()
 
-    async def get_by_user_and_id(self, session_id: int, user_id: int) -> Optional[ChatSession]:
+    async def get_by_user_and_id(self, session_id: int, user_id: int) -> ChatSession | None:
         result = await self.session.execute(select(self.model).where(
             self.model.id == session_id,
             self.model.user_id == user_id
@@ -225,7 +228,7 @@ class MessageRepository(BaseRepository[Message]):
 
 
 class KBMemberRepository(BaseRepository[KBMember]):
-    async def get(self, kb_id: int, user_id: int) -> Optional[KBMember]:
+    async def get(self, kb_id: int, user_id: int) -> KBMember | None:
         result = await self.session.execute(select(self.model).where(
             self.model.kb_id == kb_id,
             self.model.user_id == user_id

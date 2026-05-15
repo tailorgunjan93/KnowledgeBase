@@ -47,8 +47,9 @@ class OllamaLLMAdapter:
         return content
 
     def chat_stream(self, messages: list[dict], max_tokens: int = 4096):
-        import httpx
         import json
+
+        import httpx
         payload = {
             "model": self._model,
             "messages": messages,

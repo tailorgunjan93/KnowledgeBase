@@ -1,15 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
-from typing import Optional, List
-
-from .deps import get_db_session, get_current_user, get_pagination_params
-from ..infrastructure.database.repositories import KnowledgeBaseRepository, DocumentRepository, KBMemberRepository, UserRepository
-from ..domain.models import KnowledgeBase, Document, User, KBMember
-from ..shared.exceptions import NotFoundError
-from ..shared.rbac import require_kb_role, require_admin
 import shutil
 from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..domain.models import Document, KBMember, KnowledgeBase, User
+from ..infrastructure.database.repositories import (
+    DocumentRepository,
+    KBMemberRepository,
+    KnowledgeBaseRepository,
+    UserRepository,
+)
+from ..shared.exceptions import NotFoundError
+from ..shared.rbac import require_kb_role
+from .deps import get_current_user, get_db_session, get_pagination_params
 
 router = APIRouter(prefix="/api/kb", tags=["knowledge_bases"])
 
@@ -22,14 +27,14 @@ class CreateKBRequest(BaseModel):
 class KBResponse(BaseModel):
     id: int
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     is_public: bool = False
     document_count: int = 0
-    user_role: Optional[str] = None  # caller's role in this KB
+    user_role: str | None = None  # caller's role in this KB
 
 
 class KBListResponse(BaseModel):
-    items: List[KBResponse]
+    items: list[KBResponse]
     total: int
     skip: int
     limit: int
@@ -188,7 +193,7 @@ async def delete_kb(
 
 # ── Member endpoints ──────────────────────────────────────────────────────────
 
-@router.get("/{kb_id}/members", response_model=List[MemberResponse])
+@router.get("/{kb_id}/members", response_model=list[MemberResponse])
 async def list_members(
     kb_id: int,
     current_user: User = Depends(get_current_user),

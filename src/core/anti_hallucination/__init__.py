@@ -1,9 +1,9 @@
-"""Anti-Hallucination mechanisms for RAG."""
+﻿"""Anti-Hallucination mechanisms for RAG."""
 
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
-import re
 import logging
+import re
+from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +19,9 @@ class Source:
 class ConfidenceResult:
     answer: str
     confidence: float
-    sources: List[Source]
+    sources: list[Source]
     needs_correction: bool = False
-    corrected_answer: Optional[str] = None
+    corrected_answer: str | None = None
 
 
 class AntiHallucination:
@@ -30,7 +30,7 @@ class AntiHallucination:
     def __init__(self, min_confidence: float = 0.5):
         self.min_confidence = min_confidence
 
-    def evaluate(self, answer: str, sources: List[Dict[str, Any]]) -> ConfidenceResult:
+    def evaluate(self, answer: str, sources: list[dict[str, Any]]) -> ConfidenceResult:
         """Evaluate answer against sources for hallucination."""
         source_objs = [
             Source(s["doc_id"], s["text"], s.get("score", 0)) for s in sources
@@ -49,7 +49,7 @@ class AntiHallucination:
             needs_correction=needs_correction,
         )
 
-    def _calculate_source_score(self, sources: List[Dict[str, Any]]) -> float:
+    def _calculate_source_score(self, sources: list[dict[str, Any]]) -> float:
         """Calculate score based on source relevance."""
         if not sources:
             return 0.0
@@ -57,7 +57,7 @@ class AntiHallucination:
         scores = [s.get("score", 0) for s in sources]
         return min(sum(scores) / len(scores), 1.0)
 
-    def _check_consistency(self, answer: str, sources: List[Dict[str, Any]]) -> float:
+    def _check_consistency(self, answer: str, sources: list[dict[str, Any]]) -> float:
         """Check if answer is consistent with sources."""
         if not sources:
             return 0.0
@@ -87,7 +87,7 @@ class SelfCorrector:
     async def correct(
         self,
         answer: str,
-        sources: List[Dict[str, Any]],
+        sources: list[dict[str, Any]],
         llm_client: Any,
         correction_prompt: str,
     ) -> str:

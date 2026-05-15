@@ -1,10 +1,10 @@
 """LangGraph nodes for RAG orchestration."""
 
-from typing import Dict, Any, List, Optional, Tuple
+import logging
+import re
 from dataclasses import dataclass
 from enum import Enum
-import re
-import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class IntentResult:
 class QueryResult:
     refined_query: str
     original_query: str
-    corrections_applied: List[str]
+    corrections_applied: list[str]
     is_valid: bool
 
 
@@ -91,7 +91,7 @@ class QueryEvaluatorNode:
     def __init__(self, max_retries: int = 3):
         self.max_retries = max_retries
 
-    def evaluate(self, query: str, kb_context: Dict[str, Any] = None) -> QueryResult:
+    def evaluate(self, query: str, kb_context: dict[str, Any] = None) -> QueryResult:
         """Refine and validate user query for retrieval."""
         kb_context = kb_context or {}
         corrections = []
@@ -143,7 +143,7 @@ class QueryEvaluatorNode:
                 result = result.replace(abbr, full)
         return result
 
-    def _validate_query(self, query: str, context: Dict) -> bool:
+    def _validate_query(self, query: str, context: dict) -> bool:
         """Validate query is answerable."""
         if len(query) < 3:
             return False
@@ -164,7 +164,7 @@ class ResultEvaluatorNode:
         self.min_relevance = min_relevance
 
     def evaluate(
-        self, results: List[Dict[str, Any]], answer: str, original_query: str
+        self, results: list[dict[str, Any]], answer: str, original_query: str
     ) -> EvaluationResult:
         """Evaluate and score final results."""
         confidence = self._calculate_confidence(results, answer)
@@ -191,7 +191,7 @@ class ResultEvaluatorNode:
             feedback=feedback,
         )
 
-    def _calculate_confidence(self, results: List[Dict], answer: str) -> float:
+    def _calculate_confidence(self, results: list[dict], answer: str) -> float:
         """Calculate confidence score based on retrieved sources."""
         if not results:
             return 0.0
@@ -220,7 +220,7 @@ class ResultEvaluatorNode:
         return min((avg_score * 0.6) + (consistency * 0.4), 1.0)
 
     def _check_relevance(
-        self, answer: str, original_query: str, results: List[Dict]
+        self, answer: str, original_query: str, results: list[dict]
     ) -> float:
         """Check if answer is relevant to the query."""
         if not results:
@@ -245,13 +245,13 @@ class RAGOrchestrator:
         self.query_evaluator = QueryEvaluatorNode()
         self.result_evaluator = ResultEvaluatorNode()
 
-    def chat(self, query: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    def chat(self, query: str, context: dict[str, Any] = None) -> dict[str, Any]:
         """Process a chat query through the RAG pipeline."""
         context = context or {}
         kb_ids = context.get("kb_ids", [])
         if context.get("kb_id") and context.get("kb_id") not in kb_ids:
             kb_ids.append(context.get("kb_id"))
-            
+
         web_results = context.get("web_results", [])
 
         # Get conversation history context
@@ -290,35 +290,35 @@ class RAGOrchestrator:
             "sources": all_retrieved_snippets
         }
 
-    def _build_context(self, query: str, kb_ids: List[int], web_results: List[Dict], history: List[Dict]) -> Tuple[str, List[Dict]]:
+    def _build_context(self, query: str, kb_ids: list[int], web_results: list[dict], history: list[dict]) -> tuple[str, list[dict]]:
         """Build context string from various sources and return source list."""
         context_parts = []
         all_sources = []
 
         # 1. Search Knowledge Bases
         if kb_ids:
-            from ..search.dynamic_index import IndexManager
-            from ...infrastructure.database.database import Database
-            from ...domain.models import Document
             from ...core.settings import get_settings
-            
+            from ...domain.models import Document
+            from ...infrastructure.database.database import Database
+            from ..search.dynamic_index import IndexManager
+
             db_url = get_settings().db_url
             db = Database(db_url)
-            
+
             with db.session() as session:
                 for kb_id in kb_ids:
                     # Get all indexed documents for this KB
                     docs = session.query(Document).filter(
-                        Document.kb_id == kb_id, 
+                        Document.kb_id == kb_id,
                         Document.index_status == "indexed"
                     ).all()
-                    
+
                     if not docs:
                         continue
-                        
+
                     doc_ids = [d.id for d in docs]
                     index_mgr = IndexManager(kb_id)
-                    
+
                     try:
                         results = index_mgr.search_kb(query, doc_ids, top_k=5)
                         for r in results:
@@ -403,9 +403,9 @@ Provide a helpful, accurate response based on the context if available."""
     def process(
         self,
         query: str,
-        kb_context: Dict[str, Any] = None,
+        kb_context: dict[str, Any] = None,
         use_web_search: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Process query through all LangGraph nodes (legacy method)."""
         kb_available = kb_context.get("has_kb", False) if kb_context else False
 
@@ -430,7 +430,7 @@ Provide a helpful, accurate response based on the context if available."""
         }
 
     def evaluate_result(
-        self, results: List[Dict], answer: str, original_query: str
+        self, results: list[dict], answer: str, original_query: str
     ) -> EvaluationResult:
         """Evaluate final results."""
         return self.result_evaluator.evaluate(results, answer, original_query)

@@ -1,9 +1,9 @@
 """Wrapper around SQLAlchemy. All ORM imports live here."""
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
-from src.domain.models import Base, Document, KnowledgeBase
-from src.ports.document_store_port import DocumentStorePort
+
 from src.core.logger import get_logger
+from src.domain.models import Base, Document
 
 log = get_logger(__name__)
 
@@ -13,15 +13,15 @@ class SQLAlchemyAdapter:
     def __init__(self, db_url: str) -> None:
         log.info(f"Initializing Async SQLAlchemy DB: {db_url}")
         from sqlalchemy.pool import NullPool
-        
+
         if db_url.startswith("sqlite"):
             db_url = db_url.replace("sqlite:///", "sqlite+aiosqlite:///")
             connect_args = {"check_same_thread": False, "timeout": 15}
         else:
             connect_args = {}
-            
+
         self.engine = create_async_engine(db_url, connect_args=connect_args, poolclass=NullPool)
-        
+
         if db_url.startswith("sqlite+aiosqlite"):
             from sqlalchemy import event
             @event.listens_for(self.engine.sync_engine, "connect")
@@ -33,7 +33,7 @@ class SQLAlchemyAdapter:
                 except Exception:
                     pass
                 cursor.close()
-                
+
         self._Session = sessionmaker(bind=self.engine, class_=AsyncSession)
 
     async def create_all(self):

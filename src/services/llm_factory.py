@@ -6,8 +6,8 @@ Priority:
 3. Raise helpful error
 """
 
-from typing import Optional, Union
 import logging
+from typing import Union
 
 from ..shared.config import get_settings
 from ..shared.exceptions import ExternalServiceError
@@ -15,8 +15,8 @@ from ..shared.exceptions import ExternalServiceError
 logger = logging.getLogger(__name__)
 
 
-# Type alias for any LLM service
-LLMService = Union["GroqService", "OllamaService"]
+# Type alias for any LLM service (forward references resolved at runtime)
+LLMService = Union["GroqService", "OllamaService"]  # noqa: F821
 
 
 class LLMFactory:
@@ -24,7 +24,7 @@ class LLMFactory:
 
     @staticmethod
     def create(
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         prefer_local: bool = False,
     ) -> "LLMService":
         """Create the best available LLM service.
@@ -71,7 +71,7 @@ class LLMFactory:
         )
 
     @staticmethod
-    def detect_provider(api_key: Optional[str] = None) -> str:
+    def detect_provider(api_key: str | None = None) -> str:
         """Detect which LLM provider would be used.
 
         Returns:
@@ -91,7 +91,7 @@ class LLMFactory:
         return "none"
 
     @staticmethod
-    def get_provider_info(api_key: Optional[str] = None) -> dict:
+    def get_provider_info(api_key: str | None = None) -> dict:
         """Get detailed info about available LLM providers."""
         from .ollama_service import OllamaService
 

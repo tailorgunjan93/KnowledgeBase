@@ -4,9 +4,9 @@ Global roles (User.role):  "user" | "admin"
 Per-KB roles (KBMember.role): "viewer" | "editor" | "owner"
 Admins bypass all per-KB checks.
 """
-from fastapi import HTTPException, Depends
+
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
 
 ROLE_ORDER = {"viewer": 0, "editor": 1, "owner": 2}
 
@@ -21,10 +21,10 @@ async def get_kb_member_role(
     kb_id: int,
     user_id: int,
     db: AsyncSession,
-) -> Optional[str]:
+) -> str | None:
     """Return the caller's role string for a KB, or None if not a member."""
-    from ..infrastructure.database.repositories import KBMemberRepository
     from ..domain.models import KBMember
+    from ..infrastructure.database.repositories import KBMemberRepository
     repo = KBMemberRepository(KBMember, db)
     member = await repo.get(kb_id, user_id)
     return member.role if member else None

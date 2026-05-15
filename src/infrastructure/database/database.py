@@ -1,8 +1,9 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 from pathlib import Path
+
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 from .models import Base
 
@@ -21,7 +22,7 @@ class Database:
         from sqlalchemy.pool import AsyncAdaptedQueuePool, NullPool
         # Use AsyncAdaptedQueuePool for asyncio engine compatibility
         poolclass = AsyncAdaptedQueuePool if "sqlite" in database_url else NullPool
-        
+
         self.engine = create_async_engine(
             database_url,
             connect_args=connect_args,

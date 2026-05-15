@@ -1,6 +1,8 @@
 """Builds the correct LLM adapter for a user based on their stored settings."""
 import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.shared.encryption import decrypt, is_sensitive
 
 logger = logging.getLogger(__name__)
@@ -8,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 async def get_llm_for_user(user_id: int, db: AsyncSession):
     """Return an LLMPort adapter configured with the user's active provider + key."""
+    from src.core.settings import get_settings
     from src.domain.models import UserSetting
     from src.infrastructure.database.repositories import UserSettingRepository
-    from src.core.settings import get_settings
 
     repo = UserSettingRepository(UserSetting, db)
     settings = get_settings()

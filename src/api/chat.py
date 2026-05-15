@@ -1,29 +1,32 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Header
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
-from typing import Optional, List
 import logging
 
-logger = logging.getLogger(__name__)
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from .deps import get_db_session, get_current_user
-from ..infrastructure.database.repositories import ChatSessionRepository, MessageRepository, UserSettingRepository, KnowledgeBaseRepository
-from ..domain.models import ChatSession, Message, User, UserSetting, KnowledgeBase
-
-from ..core.settings import get_settings
 from ..core.search.web_search import WebSearchEngine
+from ..core.settings import get_settings
+from ..domain.models import ChatSession, Message, User, UserSetting
+from ..infrastructure.database.repositories import (
+    ChatSessionRepository,
+    MessageRepository,
+    UserSettingRepository,
+)
+from .deps import get_current_user, get_db_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
 
 class CreateSessionRequest(BaseModel):
-    kb_id: Optional[int] = None
-    title: Optional[str] = "New Chat"
+    kb_id: int | None = None
+    title: str | None = "New Chat"
 
 
 class SessionResponse(BaseModel):
     id: int
-    kb_id: Optional[int]
+    kb_id: int | None
     title: str
     created_at: str
 
@@ -32,16 +35,16 @@ class MessageResponse(BaseModel):
     id: int
     role: str
     content: str
-    intent: Optional[str] = None
-    confidence: Optional[str] = None
-    sources: Optional[List[dict]] = None
+    intent: str | None = None
+    confidence: str | None = None
+    sources: list[dict] | None = None
 
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: Optional[int] = None
-    kb_id: Optional[int] = None # Legacy support
-    kb_ids: Optional[List[int]] = None
+    session_id: int | None = None
+    kb_id: int | None = None # Legacy support
+    kb_ids: list[int] | None = None
     enable_web_search: bool = False
     advanced_rag: bool = False
 
@@ -49,12 +52,12 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     session_id: int
-    intent: Optional[str] = None
-    confidence: Optional[str] = None
-    sources: Optional[List[dict]] = None
+    intent: str | None = None
+    confidence: str | None = None
+    sources: list[dict] | None = None
 
 
-@router.get("/sessions", response_model=List[SessionResponse])
+@router.get("/sessions", response_model=list[SessionResponse])
 async def list_sessions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
@@ -103,7 +106,7 @@ async def create_session(
     )
 
 
-@router.get("/sessions/{session_id}/messages", response_model=List[MessageResponse])
+@router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])
 async def get_session_messages(
     session_id: int,
     current_user: User = Depends(get_current_user),
@@ -154,8 +157,9 @@ async def chat(
     from .deps import get_database
     db_manager = get_database()
 
-    from fastapi.responses import StreamingResponse
     import json
+
+    from fastapi.responses import StreamingResponse
 
     async def stream_generator():
         # Open the session INSIDE the generator to ensure it lives as long as the stream
@@ -180,7 +184,7 @@ async def chat(
                     await db.flush()
 
                 session_id = session.id
-                
+
                 # Save user message immediately
                 msg_repo = MessageRepository(Message, db)
                 await msg_repo.create(
@@ -192,10 +196,10 @@ async def chat(
 
                 # Yield session ID early so UI can update
                 yield json.dumps({"type": "session", "session_id": session_id}) + "\n"
-                
+
                 context_override = None
                 sources_override = None
-                
+
                 kb_id = req.kb_ids[0] if req.kb_ids and len(req.kb_ids) > 0 else req.kb_id
 
                 # Verify KB access if a KB is being used
@@ -211,8 +215,8 @@ async def chat(
 
                 # 2. KB Retrieval
                 if kb_id:
-                    from ..infrastructure.database.repositories import DocumentRepository
                     from ..domain.models import Document
+                    from ..infrastructure.database.repositories import DocumentRepository
                     doc_repo = DocumentRepository(Document, db)
                     docs = await doc_repo.get_by_kb(kb_id)
                     if docs:
@@ -220,35 +224,37 @@ async def chat(
                         from ..core.search.dynamic_index import IndexManager
                         index_manager = IndexManager(kb_id)
                         doc_ids = [d.id for d in docs if d.indexed]
-                        
+
                         if doc_ids:
                             # Advanced RAG logic
                             hyde_query = None
                             expanded_queries = None
-                            
+
                             if req.advanced_rag:
                                 from ..core.search.query_processor import QueryProcessor
-                                from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
-                                
+                                from ..infrastructure.adapters.llm_provider_factory import (
+                                    get_llm_for_user,
+                                )
+
                                 yield json.dumps({"type": "status", "content": "🧠 Optimizing search query..."}) + "\n"
                                 llm_for_proc = await get_llm_for_user(current_user.id, db)
                                 processor = QueryProcessor(llm_for_proc)
-                                
+
                                 # Parallelize HyDE and Expansion
                                 import asyncio
                                 hyde_task = asyncio.create_task(processor.generate_hypothetical_document(req.message))
                                 expansion_task = asyncio.create_task(processor.expand_query(req.message))
-                                
+
                                 hyde_query, expanded_queries = await asyncio.gather(hyde_task, expansion_task)
                                 yield json.dumps({"type": "status", "content": "🎯 Retrieving precision sources..."}) + "\n"
 
                             # Create a map for titles since the index only has IDs
                             doc_titles = {str(d.id): d.title for d in docs}
-                            
+
                             results = await run_in_threadpool(
-                                index_manager.search_kb, 
-                                req.message, 
-                                doc_ids, 
+                                index_manager.search_kb,
+                                req.message,
+                                doc_ids,
                                 5,
                                 hyde_query=hyde_query,
                                 expanded_queries=expanded_queries
@@ -285,14 +291,16 @@ async def chat(
                         raw_serper_key = serper_key_setting.value if serper_key_setting else None
                         # Decrypt if stored encrypted (enc:... prefix); pass-through for plaintext
                         final_serper_key = decrypt(raw_serper_key) if raw_serper_key else get_settings().serper_api_key
-                        
+
                         def _run_web_search_with_key(key):
                             combined = []
                             try:
                                 engine = WebSearchEngine(serper_api_key=key)
                                 results = engine.search(req.message)
-                                if results: combined = results
-                            except Exception: pass
+                                if results:
+                                    combined = results
+                            except Exception:  # noqa: BLE001
+                                pass
                             return combined
 
                         web_results = await run_in_threadpool(_run_web_search_with_key, final_serper_key)
@@ -306,25 +314,25 @@ async def chat(
 
                 # 4. LLM Stream
                 yield json.dumps({"type": "status", "content": "Synthesizing answer..."}) + "\n"
-                from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
                 from ..application.rag_service import SelfCorrectingRAG
+                from ..infrastructure.adapters.llm_provider_factory import get_llm_for_user
 
                 llm = await get_llm_for_user(current_user.id, db)
                 per_req_rag = SelfCorrectingRAG(llm=llm, vector_store=request.app.state.vector_store)
-                
+
                 stream, sources = per_req_rag.answer_stream(req.message, context_override, sources_override)
-                
+
                 full_content = ""
                 for chunk in stream:
                     full_content += chunk
                     yield json.dumps({"type": "content", "delta": chunk}) + "\n"
-                
+
                 # 5. Final Save
                 from ..infrastructure.database.repositories import MessageRepository as GenMsgRepo
                 msg_repo_gen = GenMsgRepo(Message, db)
                 await msg_repo_gen.create(session_id=session_id, role="assistant", content=full_content, confidence="0.9", sources=sources)
                 await db.commit()
-                
+
                 yield json.dumps({"type": "meta", "session_id": session_id, "sources": sources}) + "\n"
 
             except Exception as e:
@@ -379,8 +387,8 @@ _PROVIDER_MODELS: dict = {
 
 @router.get("/models")
 async def list_models(
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-    x_provider: Optional[str] = Header(None, alias="X-Provider"),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+    x_provider: str | None = Header(None, alias="X-Provider"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ):
@@ -443,7 +451,7 @@ async def list_models(
             return {"source": "fallback", "models": _PROVIDER_MODELS["gemini"]}
         try:
             # Bare unversioned model IDs that the API still lists but can no longer serve
-            _GEMINI_DEPRECATED = {
+            _gemini_deprecated = {
                 "gemini-pro", "gemini-ultra", "gemini-nano",
                 "gemini-1.0-pro", "gemini-1.0-pro-vision",
                 "gemini-1.5-pro", "gemini-1.5-flash",
@@ -457,7 +465,7 @@ async def list_models(
                     model_id = raw_name.removeprefix("models/")
                     if not model_id.startswith("gemini"):
                         continue  # skip embedding / vision-only models
-                    if model_id in _GEMINI_DEPRECATED:
+                    if model_id in _gemini_deprecated:
                         continue
                     # Accept models that support generateContent in either field name
                     methods = (

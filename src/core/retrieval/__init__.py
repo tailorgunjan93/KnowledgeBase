@@ -1,11 +1,12 @@
-"""FAISS Vector Store for dense retrieval."""
+﻿"""FAISS Vector Store for dense retrieval."""
 
-from typing import List, Dict, Any, Optional
-import numpy as np
-import faiss
+import logging
 import pickle
 from pathlib import Path
-import logging
+from typing import Any
+
+import faiss
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -13,12 +14,12 @@ logger = logging.getLogger(__name__)
 class FAISSStore:
     """FAISS-based vector store."""
 
-    def __init__(self, dimension: int = 384, index_path: Optional[str] = None):
+    def __init__(self, dimension: int = 384, index_path: str | None = None):
         self.dimension = dimension
         self.index_path = index_path
-        self.index: Optional[faiss.Index] = None
-        self.documents: List[str] = []
-        self.doc_ids: List[str] = []
+        self.index: faiss.Index | None = None
+        self.documents: list[str] = []
+        self.doc_ids: list[str] = []
 
         if index_path and Path(index_path).exists():
             self.load(index_path)
@@ -27,9 +28,9 @@ class FAISSStore:
 
     def add_documents(
         self,
-        texts: List[str],
+        texts: list[str],
         embeddings: np.ndarray,
-        doc_ids: Optional[List[str]] = None,
+        doc_ids: list[str] | None = None,
     ) -> None:
         """Add documents to the index."""
         if embeddings.shape[1] != self.dimension:
@@ -41,7 +42,7 @@ class FAISSStore:
         self.documents.extend(texts)
         self.doc_ids.extend(doc_ids or [str(i) for i in range(len(texts))])
 
-    def search(self, query_embedding: np.ndarray, k: int = 5) -> List[Dict[str, Any]]:
+    def search(self, query_embedding: np.ndarray, k: int = 5) -> list[dict[str, Any]]:
         """Search for similar documents."""
         if self.index.ntotal == 0:
             return []
@@ -59,7 +60,7 @@ class FAISSStore:
         # Additional safety check before accessing [0]
         if len(distances) == 0 or len(indices) == 0 or len(distances[0]) == 0 or len(indices[0]) == 0:
             return results
-            
+
         for dist, idx in zip(distances[0], indices[0]):
             # FAISS may return -1 for invalid indices when asking for more neighbors than available
             if idx >= 0 and idx < len(self.documents) and idx < len(self.doc_ids):

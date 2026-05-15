@@ -1,10 +1,11 @@
 """BM25 Store for keyword-based retrieval."""
 
-from typing import List, Dict, Any
-from rank_bm25 import BM25Okapi
+import logging
 import pickle
 from pathlib import Path
-import logging
+from typing import Any
+
+from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
 
@@ -15,13 +16,13 @@ class BM25Store:
     def __init__(self, index_path: str = None):
         self.index_path = index_path
         self.bm25: BM25Okapi = None
-        self.documents: List[str] = []
-        self.doc_ids: List[str] = []
+        self.documents: list[str] = []
+        self.doc_ids: list[str] = []
 
         if index_path and Path(index_path).exists():
             self.load(index_path)
 
-    def add_documents(self, texts: List[str], doc_ids: List[str] = None) -> None:
+    def add_documents(self, texts: list[str], doc_ids: list[str] = None) -> None:
         """Add documents to the index."""
         self.documents = texts
         self.doc_ids = doc_ids or [str(i) for i in range(len(texts))]
@@ -29,7 +30,7 @@ class BM25Store:
         tokenized_docs = [doc.lower().split() for doc in texts]
         self.bm25 = BM25Okapi(tokenized_docs)
 
-    def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+    def search(self, query: str, k: int = 5) -> list[dict[str, Any]]:
         """Search for relevant documents."""
         if not self.bm25:
             return []

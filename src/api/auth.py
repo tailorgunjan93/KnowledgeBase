@@ -1,20 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, EmailStr
-from typing import Optional
 
-from .deps import get_db_session, get_current_user
-from ..infrastructure.database.repositories import UserRepository, UserSettingRepository
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ..domain.models import User, UserSetting
-from ..shared.security import hash_password, verify_password, create_access_token
-from ..shared.encryption import encrypt, decrypt, is_sensitive, SENTINEL
+from ..infrastructure.database.repositories import UserRepository, UserSettingRepository
+from ..shared.encryption import SENTINEL, encrypt, is_sensitive
+from ..shared.security import create_access_token, hash_password, verify_password
+from .deps import get_current_user, get_db_session
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
 class SignupRequest(BaseModel):
     username: str
-    email: Optional[str] = None
+    email: str | None = None
     password: str
 
 
@@ -26,7 +26,7 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     user_id: int
     username: str
-    email: Optional[str] = None
+    email: str | None = None
     role: str = "user"
 
 

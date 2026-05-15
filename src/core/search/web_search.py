@@ -1,18 +1,19 @@
-import httpx
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
+
+import httpx
 from duckduckgo_search import DDGS
 
 logger = logging.getLogger(__name__)
 
 class WebSearchEngine:
-    def __init__(self, serper_api_key: Optional[str] = None):
+    def __init__(self, serper_api_key: str | None = None):
         self.serper_api_key = serper_api_key
 
-    def search(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
+    def search(self, query: str, num_results: int = 5) -> list[dict[str, Any]]:
         """Perform web search using Serper (if key available) or DuckDuckGo fallback."""
         results = []
-        
+
         # 1. Try Serper if key is provided
         if self.serper_api_key:
             try:

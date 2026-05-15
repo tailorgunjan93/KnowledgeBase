@@ -1,4 +1,6 @@
-from typing import Protocol, Iterator
+from collections.abc import Iterator
+from typing import Protocol
+
 
 class LLMPort(Protocol):
     """Abstraction over any LLM provider."""

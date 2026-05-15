@@ -27,10 +27,11 @@ If the key is missing, a random one is generated at startup — keys will NOT
 survive restarts.  Always set a real key in production.
 """
 
-import os
 import base64
-import secrets
 import logging
+import os
+import secrets
+
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 logger = logging.getLogger(__name__)

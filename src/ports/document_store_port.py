@@ -1,5 +1,6 @@
 from typing import Protocol
 
+
 class DocumentStorePort(Protocol):
     """Abstraction over the relational data store."""
 

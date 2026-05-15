@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional
+
 from src.ports.llm_port import LLMPort
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ class QueryProcessor:
             f"Question: {query}\n\n"
             "Hypothetical Answer:"
         )
-        
+
         messages = [{"role": "user", "content": prompt}]
         try:
             # We use the direct chat method
@@ -30,7 +30,7 @@ class QueryProcessor:
             logger.error(f"HyDE generation failed: {e}")
             return query # Fallback to original query
 
-    async def expand_query(self, query: str, num_variations: int = 3) -> List[str]:
+    async def expand_query(self, query: str, num_variations: int = 3) -> list[str]:
         """Query Expansion: Generate multiple variations of the query."""
         logger.info(f"Expanding query: {query[:50]}...")
         prompt = (

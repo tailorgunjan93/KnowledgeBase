@@ -1,10 +1,8 @@
 """Embedding Worker using Sentence Transformers."""
 
-from typing import List, Dict, Any
-import numpy as np
 from sentence_transformers import SentenceTransformer
 
-from ..workers import Worker, Task, TaskResult, WorkerType
+from ..workers import Task, TaskResult, Worker, WorkerType
 
 
 class EmbeddingWorker(Worker):

@@ -1,9 +1,8 @@
-ju"""Generation Worker for LLM response generation."""
+"""Generation Worker for LLM response generation."""
 
 import os
-from typing import Dict, Any, Optional
 
-from ..workers import Worker, Task, TaskResult, WorkerType
+from ..workers import Task, TaskResult, Worker, WorkerType
 
 
 class GenerationWorker(Worker):
