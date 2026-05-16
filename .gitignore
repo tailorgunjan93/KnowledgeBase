@@ -42,3 +42,8 @@ logs/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Private / internal docs (never publish to public repo)
+NEXT_PHASE.md
+ENHANCEMENTS.md
+MONETIZATION_STRATEGY.md
